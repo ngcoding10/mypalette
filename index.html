@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>MyPalette · know what to order</title>
+  <meta name="description" content="Teach MyPalette what food you like in a few quick rounds, then snap a photo of any menu to get the 3 dishes you are most likely to enjoy, with every dish explained in plain words.">
+  <meta name="theme-color" content="#fbf7f2" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#17120f" media="(prefers-color-scheme: dark)">
+  <meta name="color-scheme" content="light dark">
+  <link rel="canonical" href="https://ngcoding10.github.io/mypalette/">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="MyPalette">
+  <meta property="og:title" content="MyPalette · know what to order">
+  <meta property="og:description" content="Snap a menu, get your top 3 dishes and a plain explanation of everything else. It learns what you like.">
+  <meta property="og:url" content="https://ngcoding10.github.io/mypalette/">
+  <meta property="og:image" content="https://ngcoding10.github.io/mypalette/assets/share.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="MyPalette: a phone showing three dish suggestions from a Thai menu">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="MyPalette · know what to order">
+  <meta name="twitter:description" content="Snap a menu, get your top 3 dishes and a plain explanation of everything else.">
+  <meta name="twitter:image" content="https://ngcoding10.github.io/mypalette/assets/share.png">
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
+  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="MyPalette">
+  <link rel="modulepreload" href="js/app.js">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="top">
+    <a class="brand" href="#/" aria-label="MyPalette home">
+      <svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="14" fill="var(--plate)" stroke="var(--line-strong)" stroke-width="1.5"/><circle cx="11" cy="12.5" r="3.2" fill="var(--accent)"/><circle cx="19.5" cy="11" r="2.6" fill="var(--herb)"/><circle cx="20" cy="19.5" r="3" fill="var(--saffron)"/><circle cx="12" cy="20.5" r="2.2" fill="var(--ink-3)"/></svg>
+      <span>MyPalette</span>
+    </a>
+    <span class="sync" id="sync" aria-live="polite"></span>
+  </header>
+
+  <main id="main" tabindex="-1">
+    <div id="app" class="wrap"><p class="muted center pad">Loading…</p></div>
+    <noscript><div class="wrap"><p class="card">MyPalette needs JavaScript to run. Everything stays in your browser unless you sign in.</p></div></noscript>
+  </main>
+
+  <nav class="tabs" aria-label="Main">
+    <a href="#/" data-tab="home"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11 12 4l8 7v9h-5v-6H9v6H4z"/></svg><span>Home</span></a>
+    <a href="#/menu" data-tab="menu"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg><span>Read menu</span></a>
+    <a href="#/train" data-tab="train"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r=".8"/></svg><span>Train</span></a>
+    <a href="#/you" data-tab="you"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="9" r="3.5"/><path d="M5 20c1-4 4-6 7-6s6 2 7 6"/></svg><span>You</span></a>
+  </nav>
+
+  <footer class="foot wrap">
+    <a href="privacy.html">Privacy</a><a href="terms.html">Terms</a><a href="https://github.com/ngcoding10/mypalette/issues">Feedback</a>
+  </footer>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
