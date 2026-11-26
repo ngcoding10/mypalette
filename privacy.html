@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Privacy policy · MyPalette</title>
+  <meta name="description" content="What MyPalette collects, how it is used, and your choices.">
+  <meta name="color-scheme" content="light dark">
+  <link rel="canonical" href="https://ngcoding10.github.io/mypalette/privacy.html">
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
+  <link rel="stylesheet" href="css/style.css">
+  <style>body { padding-bottom: 0; } .doc { padding-top: 20px; padding-bottom: 48px; } .doc h2 { margin-top: 30px; font-size: 21px; } .doc li { margin: 4px 0; } .lead { font-size: 18px; }</style>
+</head>
+<body>
+<main class="wrap doc">
+  <a class="brand" href="./"><svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="14" fill="var(--plate)" stroke="var(--line-strong)" stroke-width="1.5"/><circle cx="11" cy="12.5" r="3.2" fill="var(--accent)"/><circle cx="19.5" cy="11" r="2.6" fill="var(--herb)"/><circle cx="20" cy="19.5" r="3" fill="var(--saffron)"/><circle cx="12" cy="20.5" r="2.2" fill="var(--ink-3)"/></svg><span>MyPalette</span></a>
+  <h1 style="margin-top:24px">Privacy policy</h1>
+  <p class="muted">Last updated: 26 November 2026</p>
+  <p class="lead">MyPalette learns what food you like and suggests dishes from restaurant menus. It keeps only what it needs, never sells your information, and currently has no ads or analytics.</p>
+
+  <h2>Who this covers</h2>
+  <p>This policy covers MyPalette at <a href="https://ngcoding10.github.io/mypalette/">ngcoding10.github.io/mypalette</a>. "We" means the individual developer who runs it as a personal project.</p>
+
+  <h2>What we collect</h2>
+  <ul>
+    <li><b>Your answers and choices:</b> an optional name or nickname, diet rules, allergies, foods you never eat, how much heat you like, the dishes you pick in training rounds, menus you have read, what you ordered and how you rated it, and the taste profile worked out from all of that.</li>
+    <li><b>Signed out:</b> all of this stays in your browser's local storage on your device. We never receive it.</li>
+    <li><b>Signed in (optional):</b> your profile and menu history are also saved to your account, where only you can read them. Sign-in uses Google or an email and password, through Google Firebase. We receive your email address (and your name from Google, if you use Google). We never see your Google password.</li>
+    <li><b>Menu photos and typed menus:</b> when you read a menu, the photo (shrunk on your device first) or the text you typed, together with a short summary of your profile (likes and dislikes as words, diet rules, allergies, foods you never eat, heat level, number of training rounds), is sent to our Cloud Function and from there to Anthropic's Claude API, which reads the menu and writes the explanations. The photo is not stored by MyPalette. The dishes read from it are kept in your menu history (in your browser, and in your account if you are signed in) so you can come back to them.</li>
+    <li><b>Anonymous training data (only if you tick the box):</b> if you tick "Help improve MyPalette by sharing my anonymous choices", we store your intake choices (without your name or anything you typed yourself) and your picks in the training rounds, under a random id that is not linked to your account. It contains no name, email or account id. We use it only to measure and improve how well MyPalette guesses. Untick the box to remove it.</li>
+    <li><b>Daily usage counters:</b> to enforce daily limits we count requests per account per day (and, for anonymous sharing, per one-way scrambled network address per day). Counters delete themselves after about a week.</li>
+  </ul>
+  <p>The sign-in and an optional username are shared with the other apps the same developer runs on this backend (The Pantry, Where Have You Been and Movi). Using MyPalette does not create a profile in any of them.</p>
+  <p>We don't collect payment details, contacts or your location. The site currently has <b>no ads or analytics</b> and sets no tracking cookies. If that changes, this page will be updated first.</p>
+
+  <h2>Allergy information</h2>
+  <div class="notice" role="note"><strong>Allergies and diets.</strong> Allergy and diet flags are a best guess from a photo or typed menu and general food knowledge. Kitchens and recipes vary, and a photo can be misread. MyPalette never tells you a dish is safe. Always confirm with the staff before you order. This is not medical advice.</div>
+
+  <h2>Services we use</h2>
+  <ul>
+    <li><b>Google Firebase</b> (United States) provides sign-in, stores signed-in data in Firestore, and runs the Cloud Functions. Firebase App Check with Google reCAPTCHA Enterprise looks at device and browser signals to tell real visitors from bots. Google also serves the Firebase code library to your browser.</li>
+    <li><b>Anthropic</b> (United States) runs the Claude model that reads menus. It receives the photo or text and the profile summary described above, through our Cloud Function, and returns the answer.</li>
+    <li><b>GitHub Pages</b> hosts the website. Like any web host, GitHub may log IP addresses.</li>
+  </ul>
+  <p>We may share information if the law requires it.</p>
+
+  <h2>How long we keep it</h2>
+  <p>We keep your account data while you want it kept. Anonymous training data is kept until you untick the box, or until we no longer need it to improve the app. Data in your browser stays until you clear it.</p>
+
+  <h2>Your choices</h2>
+  <ul>
+    <li><b>Download your data:</b> You → "Download my profile".</li>
+    <li><b>Delete your account data:</b> You → "Delete my MyPalette data from my account". Your sign-in is removed when none of the apps has data left for you.</li>
+    <li><b>Withdraw shared training data:</b> untick the sharing box on the same page.</li>
+    <li><b>Clear this device:</b> You → "Clear everything on this device".</li>
+    <li><b>Use it signed out:</b> training and the taste profile work without an account. Reading menu photos needs one.</li>
+  </ul>
+
+  <h2>Children</h2>
+  <p>MyPalette is not meant for children under 13, and we don't knowingly collect information from them. If you believe a child under 13 has signed in, contact us and we'll delete it.</p>
+
+  <h2>Changes</h2>
+  <p>If we change this policy, we'll update the date at the top of this page.</p>
+
+  <h2>Contact</h2>
+  <p>Questions or requests about your data? Open an issue at <a href="https://github.com/ngcoding10/mypalette/issues">github.com/ngcoding10/mypalette/issues</a>.</p>
+  <footer class="foot" style="padding-left:0;justify-content:flex-start"><a href="./">Back to MyPalette</a><a href="privacy.html">Privacy policy</a><a href="terms.html">Terms of service</a></footer>
+</main>
+</body>
+</html>
