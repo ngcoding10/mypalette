@@ -1,0 +1,6 @@
+node_modules/
+*.log
+screenshots/
+shots/
+palette-sessions.json
+.DS_Store

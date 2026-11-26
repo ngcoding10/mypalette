@@ -1,0 +1,10 @@
+{
+  "name": "mypalette",
+  "private": true,
+  "type": "module",
+  "description": "MyPalette: a static web app (no build step). These scripts only run the tests and tools.",
+  "scripts": {
+    "test": "node --test test/learner.test.mjs",
+    "evaluate": "node tools/evaluate.mjs tools/sample-sessions.json"
+  }
+}
