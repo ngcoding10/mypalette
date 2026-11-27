@@ -1,15 +1,18 @@
-// Twelve sample menus for the training rounds. Generic, well-known dishes with plain descriptions,
-// written for MyPalette (not any restaurant's menu). Each dish is tagged with the feature schema
-// in js/schema.js. Dish ids are stable: shared sessions refer to them, so never rename one; add new.
+// Sample menus for the training rounds: 26 restaurants across cuisines and price levels, from a
+// $ takeaway to a $$$$ steakhouse. Generic, well-known dishes with plain descriptions, written for
+// MyPalette (not any restaurant's menu). Each dish is tagged with the feature schema in
+// js/schema.js. Dish and menu ids are stable: shared sessions refer to them, so never rename one; add new.
 //
 // Tag line, fields separated by "|":
 //   course | protein | method | heat rich sweet sour umami (0-3 each) | textures | ingredients |
 //   carb | c(ommon) or a(dventurous) | h(ot) or c(old) | allergens [| diet, only when it can't be derived]
+// Prices are per menu, in dish order; menus without them get a typical price for their tier.
 import { normalizeDish } from './schema.js';
+import { allowed } from './rules.js';
 
 const MENUS_RAW = [
   {
-    id: 'thai', cuisine: 'thai', title: 'Thai', place: 'A neighbourhood Thai kitchen',
+    id: 'thai', cuisine: 'thai', title: 'Thai', place: 'A neighbourhood Thai kitchen', tier: '$$',
     dishes: [
       ['satay', 'Chicken satay', 'Grilled skewers of marinated chicken with peanut sauce and cucumber relish.', 'starter|chicken|grilled|0 2 2 1 2|tender,juicy|chicken,peanut,coconut milk,turmeric,cucumber|none|c|h|peanut,soy,fish'],
       ['spring-rolls', 'Fried spring rolls', 'Crispy rolls of glass noodles, cabbage and carrot, with sweet chili sauce.', 'starter|none|fried|0 1 2 1 1|crispy|glass noodle,cabbage,carrot,sweet chili sauce|noodle|c|h|gluten,soy'],
@@ -30,7 +33,7 @@ const MENUS_RAW = [
     ],
   },
   {
-    id: 'vietnamese', cuisine: 'vietnamese', title: 'Vietnamese', place: 'A Vietnamese noodle house',
+    id: 'vietnamese', cuisine: 'vietnamese', title: 'Vietnamese', place: 'A Vietnamese noodle house', tier: '$',
     dishes: [
       ['goi-cuon', 'Fresh spring rolls (goi cuon)', 'Soft rice paper rolls with shrimp, pork, herbs and vermicelli, with a peanut hoisin dip.', 'starter|mixed|fresh|0 0 1 1 1|soft|rice paper,shrimp,pork,rice noodle,mint,lettuce,peanut,hoisin|noodle|c|c|shellfish,peanut,soy,gluten'],
       ['cha-gio', 'Imperial rolls (cha gio)', 'Crispy fried rolls of pork, glass noodles and mushroom, eaten wrapped in lettuce with herbs and dipping sauce.', 'starter|pork|fried|0 2 1 1 2|crispy|pork,glass noodle,wood ear mushroom,carrot,lettuce,fish sauce|noodle|c|h|fish,egg'],
@@ -49,7 +52,7 @@ const MENUS_RAW = [
     ],
   },
   {
-    id: 'japanese', cuisine: 'japanese', title: 'Japanese', place: 'A Japanese restaurant with a sushi bar',
+    id: 'japanese', cuisine: 'japanese', title: 'Japanese', place: 'A Japanese restaurant with a sushi bar', tier: '$$$',
     dishes: [
       ['edamame', 'Edamame', 'Steamed young soybeans in the pod, with sea salt.', 'starter|legumes|steamed|0 0 0 0 1|soft|soybean,salt|none|c|h|soy'],
       ['gyoza', 'Gyoza', 'Pan-fried dumplings filled with pork and cabbage, with a soy vinegar dip.', 'starter|pork|fried|0 2 0 1 2|crispy,juicy|pork,cabbage,garlic,ginger,wheat wrapper,soy sauce|none|c|h|gluten,soy,sesame'],
@@ -70,7 +73,7 @@ const MENUS_RAW = [
     ],
   },
   {
-    id: 'korean', cuisine: 'korean', title: 'Korean', place: 'A Korean barbecue and stew house',
+    id: 'korean', cuisine: 'korean', title: 'Korean', place: 'A Korean barbecue and stew house', tier: '$$',
     dishes: [
       ['kimchijeon', 'Kimchi pancake (kimchijeon)', 'Crispy-edged pancake of kimchi and scallion, with soy dipping sauce.', 'starter|none|fried|2 2 0 2 2|crispy,chewy|kimchi,flour,scallion,soy sauce|none|c|h|gluten,soy,fish'],
       ['mandu', 'Fried mandu', 'Korean dumplings filled with pork, tofu and glass noodles.', 'starter|pork|fried|0 2 0 0 2|crispy,juicy|pork,tofu,glass noodle,cabbage,garlic,scallion|none|c|h|gluten,soy,sesame'],
@@ -89,7 +92,7 @@ const MENUS_RAW = [
     ],
   },
   {
-    id: 'chinese', cuisine: 'chinese', title: 'Chinese', place: 'A Chinese restaurant with Cantonese and Sichuan dishes',
+    id: 'chinese', cuisine: 'chinese', title: 'Chinese', place: 'A Chinese restaurant with Cantonese and Sichuan dishes', tier: '$$',
     dishes: [
       ['hot-sour', 'Hot and sour soup', 'Thick, peppery and tangy soup with tofu, pork, mushrooms, bamboo shoots and egg ribbons.', 'soup|tofu|simmered|2 1 0 2 2|brothy|tofu,pork,mushroom,bamboo shoot,egg,vinegar,white pepper|none|c|h|egg,soy,gluten|meat'],
       ['jiaozi', 'Steamed pork dumplings', 'Juicy dumplings of pork and chive, with black vinegar and ginger.', 'starter|pork|steamed|0 2 0 1 2|juicy,soft|pork,chive,ginger,wheat wrapper,black vinegar|none|c|h|gluten,soy,sesame'],
@@ -110,7 +113,7 @@ const MENUS_RAW = [
     ],
   },
   {
-    id: 'indian', cuisine: 'indian', title: 'Indian', place: 'A North and South Indian restaurant',
+    id: 'indian', cuisine: 'indian', title: 'Indian', place: 'A North and South Indian restaurant', tier: '$$',
     dishes: [
       ['samosa', 'Vegetable samosa', 'Crisp fried pastry filled with spiced potato and peas, with tamarind chutney.', 'starter|none|fried|1 2 1 1 1|crispy|potato,pea,flour,cumin,tamarind|potato|c|h|gluten'],
       ['onion-bhaji', 'Onion bhaji', 'Crispy fritters of sliced onion in spiced chickpea batter.', 'starter|none|fried|1 2 1 0 1|crispy|onion,chickpea flour,cumin,chili|none|c|h|'],
@@ -131,7 +134,7 @@ const MENUS_RAW = [
     ],
   },
   {
-    id: 'mexican', cuisine: 'mexican', title: 'Mexican', place: 'A Mexican taqueria and grill',
+    id: 'mexican', cuisine: 'mexican', title: 'Mexican', place: 'A Mexican taqueria and grill', tier: '$',
     dishes: [
       ['guacamole', 'Guacamole and chips', 'Mashed avocado with lime, onion, cilantro and chili, with corn tortilla chips.', 'starter|none|fresh|1 2 0 1 0|creamy,crunchy|avocado,lime,onion,cilantro,chili,tortilla chip|none|c|c|'],
       ['queso', 'Queso fundido', 'Hot melted cheese with chorizo, scooped up with warm tortillas.', 'starter|cheese|baked|1 3 0 0 2|creamy,chewy|cheese,chorizo,flour tortilla|bread|c|h|dairy,gluten|meat'],
@@ -150,7 +153,7 @@ const MENUS_RAW = [
     ],
   },
   {
-    id: 'italian', cuisine: 'italian', title: 'Italian', place: 'An Italian trattoria',
+    id: 'italian', cuisine: 'italian', title: 'Italian', place: 'An Italian trattoria', tier: '$$',
     dishes: [
       ['bruschetta', 'Bruschetta', 'Toasted bread rubbed with garlic, topped with fresh tomato, basil and olive oil.', 'starter|none|fresh|0 1 1 1 1|crunchy|bread,tomato,basil,garlic,olive oil|bread|c|c|gluten'],
       ['caprese', 'Caprese salad', 'Sliced tomato and fresh mozzarella with basil and olive oil.', 'salad|cheese|fresh|0 2 1 1 1|creamy,soft|tomato,mozzarella,basil,olive oil|none|c|c|dairy'],
@@ -170,7 +173,7 @@ const MENUS_RAW = [
     ],
   },
   {
-    id: 'middle-eastern', cuisine: 'middle_eastern', title: 'Middle Eastern', place: 'A Lebanese and Levantine grill',
+    id: 'middle-eastern', cuisine: 'middle_eastern', title: 'Middle Eastern', place: 'A Lebanese and Levantine grill', tier: '$$',
     dishes: [
       ['hummus', 'Hummus', 'Smooth chickpea and tahini dip with lemon, garlic and olive oil, with warm pita.', 'starter|legumes|fresh|0 2 0 1 1|creamy|chickpea,tahini,lemon,garlic,olive oil,pita|bread|c|c|sesame,gluten'],
       ['baba-ghanoush', 'Baba ghanoush', 'Smoky roasted eggplant dip with tahini and lemon.', 'starter|none|roasted|0 2 0 1 1|creamy|eggplant,tahini,lemon,garlic,olive oil|none|c|c|sesame'],
@@ -189,7 +192,7 @@ const MENUS_RAW = [
     ],
   },
   {
-    id: 'diner', cuisine: 'american', title: 'American diner', place: 'A classic American diner',
+    id: 'diner', cuisine: 'american', title: 'American diner', place: 'A classic American diner', tier: '$',
     dishes: [
       ['wings', 'Buffalo wings', 'Fried chicken wings tossed in tangy hot sauce, with blue cheese dip and celery.', 'starter|chicken|fried|2 2 0 2 1|crispy,juicy|chicken wing,hot sauce,butter,blue cheese,celery|none|c|h|dairy'],
       ['mozz-sticks', 'Mozzarella sticks', 'Breaded, fried mozzarella with marinara.', 'starter|cheese|fried|0 3 0 0 1|crispy,chewy|mozzarella,breadcrumb,marinara|none|c|h|dairy,gluten,egg'],
@@ -209,7 +212,7 @@ const MENUS_RAW = [
     ],
   },
   {
-    id: 'greek', cuisine: 'greek', title: 'Greek', place: 'A Greek taverna',
+    id: 'greek', cuisine: 'greek', title: 'Greek', place: 'A Greek taverna', tier: '$$',
     dishes: [
       ['tzatziki', 'Tzatziki', 'Thick yogurt dip with cucumber, garlic and dill, with pita.', 'starter|none|fresh|0 1 0 1 0|creamy|yogurt,cucumber,garlic,dill,pita|bread|c|c|dairy,gluten'],
       ['spanakopita', 'Spanakopita', 'Flaky filo pie of spinach and feta.', 'starter|cheese|baked|0 2 0 0 1|crispy|spinach,feta,filo pastry,egg,dill|none|c|h|gluten,dairy,egg'],
@@ -229,7 +232,7 @@ const MENUS_RAW = [
     ],
   },
   {
-    id: 'ethiopian', cuisine: 'ethiopian', title: 'Ethiopian', place: 'An Ethiopian restaurant (dishes come on injera, a spongy sour flatbread)',
+    id: 'ethiopian', cuisine: 'ethiopian', title: 'Ethiopian', place: 'An Ethiopian restaurant (dishes come on injera, a spongy sour flatbread)', tier: '$',
     dishes: [
       ['sambusa', 'Sambusa', 'Crisp fried pastry filled with spiced lentils.', 'starter|legumes|fried|1 1 0 0 1|crispy|lentil,onion,green chili,flour|none|c|h|gluten'],
       ['ful', 'Ful', 'Mashed fava beans with olive oil, tomato, onion, chili and yogurt, with bread.', 'starter|legumes|simmered|1 2 0 1 2|creamy,soft|fava bean,tomato,onion,jalapeno,olive oil,yogurt,bread|bread|c|h|dairy,gluten'],
@@ -246,9 +249,298 @@ const MENUS_RAW = [
       ['atakilt', 'Atakilt wat', 'Mild stew of cabbage, potato and carrot with turmeric.', 'side|none|simmered|0 1 1 0 1|soft|cabbage,potato,carrot,turmeric,onion,injera|potato|c|h|gluten'],
     ],
   },
+  {
+    id: 'french-bistro', cuisine: 'french', title: 'French bistro', place: 'A Parisian-style bistro', tier: '$$$',
+    prices: '12 14 13 18 15 32 28 30 31 27 36 22 16 9 11 11',
+    dishes: [
+      ['soupe-oignon', 'French onion soup', 'Slow-cooked onion soup in beef broth, under a crouton of melted gruyere.', 'soup|none|simmered|0 3 1 0 3|brothy,soft|onion,beef broth,gruyere,baguette,butter,thyme|bread|c|h|gluten,dairy|meat'],
+      ['escargots', 'Escargots', 'Snails baked in their shells with garlic, parsley and butter.', 'starter|shellfish|baked|0 3 0 0 2|tender|snail,garlic,parsley,butter|none|a|h|dairy,shellfish|meat'],
+      ['pate', 'Country pate', 'Coarse pork and chicken liver terrine with cornichons, mustard and toasted bread.', 'starter|pork|baked|0 3 0 1 3|soft|pork,chicken liver,cornichon,mustard,bread|bread|a|c|gluten'],
+      ['nicoise', 'Salade nicoise', 'Tuna, green beans, potato, egg, olives and tomato with anchovy and a mustard vinaigrette.', 'salad|fish|fresh|0 1 0 2 2|crunchy,soft|tuna,green bean,potato,egg,olive,tomato,anchovy,mustard|potato|c|c|fish,egg'],
+      ['chevre-salad', 'Warm goat cheese salad', 'Toasts of melted goat cheese on leaves with walnuts, honey and vinaigrette.', 'salad|cheese|baked|0 2 2 1 1|creamy,crunchy|goat cheese,baguette,walnut,honey,lettuce|bread|c|h|dairy,gluten,tree_nut'],
+      ['steak-frites', 'Steak frites', 'Seared sirloin with peppercorn sauce and thin, crisp fries.', 'main|beef|grilled|0 3 0 0 3|juicy,crispy|beef,potato,black pepper,cream,butter,shallot|potato|c|h|dairy'],
+      ['coq-au-vin', 'Coq au vin', 'Chicken braised slowly in red wine with bacon, mushrooms and pearl onions.', 'main|chicken|braised|0 3 0 1 3|tender,saucy|chicken,red wine,bacon,mushroom,pearl onion,thyme|potato|c|h|'],
+      ['bourguignon', 'Beef bourguignon', 'Beef stewed for hours in red wine with carrots, mushrooms and bacon, with mashed potato.', 'main|beef|braised|0 3 1 0 3|tender,saucy|beef,red wine,carrot,mushroom,bacon,potato,butter|potato|c|h|dairy'],
+      ['duck-confit', 'Duck confit', 'Crisp-skinned duck leg cooked slowly in its own fat, with garlic potatoes.', 'main|duck|roasted|0 3 0 0 3|crispy,tender|duck,garlic,potato,thyme|potato|c|h|'],
+      ['moules', 'Moules marinieres', 'Mussels steamed in white wine, garlic, shallot and cream, with fries.', 'main|shellfish|steamed|0 2 0 1 2|brothy,tender|mussel,white wine,garlic,shallot,cream,parsley,potato|potato|c|h|shellfish,dairy'],
+      ['sole', 'Sole meuniere', 'Pan-fried sole in brown butter with lemon, capers and parsley.', 'main|fish|fried|0 3 0 2 2|tender|sole,butter,lemon,caper,parsley,flour|none|c|h|fish,dairy,gluten'],
+      ['ratatouille', 'Ratatouille', 'Provencal stew of eggplant, zucchini, peppers and tomato with herbs.', 'main|none|simmered|0 1 1 1 1|soft,saucy|eggplant,zucchini,bell pepper,tomato,onion,thyme,olive oil|none|c|h|'],
+      ['croque', 'Croque monsieur', 'Toasted ham and gruyere sandwich topped with bechamel and baked.', 'main|pork|baked|0 3 0 0 2|crispy,creamy|bread,ham,gruyere,bechamel,butter|bread|c|h|gluten,dairy'],
+      ['gratin', 'Gratin dauphinois', 'Thin potato slices baked in cream and garlic.', 'side|none|baked|0 3 0 0 1|creamy,soft|potato,cream,garlic,nutmeg|potato|c|h|dairy'],
+      ['creme-brulee', 'Creme brulee', 'Vanilla custard under a crackling caramel top.', 'dessert|egg|baked|0 3 3 0 0|creamy,crunchy|cream,egg,vanilla,sugar|none|c|c|dairy,egg'],
+      ['tarte-tatin', 'Tarte tatin', 'Upside-down caramelised apple tart with creme fraiche.', 'dessert|none|baked|0 3 3 1 0|soft,sticky|apple,butter,sugar,pastry,creme fraiche|none|c|h|gluten,dairy'],
+    ],
+  },
+  {
+    id: 'tapas', cuisine: 'spanish', title: 'Spanish tapas', place: 'A Spanish tapas bar', tier: '$$',
+    prices: '6 16 7 8 11 7 8 15 9 10 24 19 16 18 22 7 7',
+    dishes: [
+      ['pan-tomate', 'Pan con tomate', 'Toasted bread rubbed with ripe tomato, garlic and olive oil.', 'starter|none|fresh|0 1 1 1 1|crunchy|bread,tomato,garlic,olive oil|bread|c|c|gluten'],
+      ['jamon', 'Jamon iberico', 'Thin slices of cured Iberian ham.', 'starter|pork|fresh|0 2 0 0 3|soft,chewy|ham,salt|none|c|c|'],
+      ['bravas', 'Patatas bravas', 'Fried potato cubes with spicy tomato sauce and garlic aioli.', 'starter|none|fried|2 2 0 1 1|crispy|potato,tomato,paprika,garlic,aioli|potato|c|h|egg'],
+      ['croquetas', 'Ham croquetas', 'Creamy bechamel croquettes with ham, breaded and fried.', 'starter|pork|fried|0 3 0 0 2|crispy,creamy|ham,bechamel,milk,breadcrumb,egg|none|c|h|gluten,dairy,egg'],
+      ['gambas', 'Gambas al ajillo', 'Shrimp sizzled in olive oil with lots of garlic and chili.', 'starter|shellfish|fried|1 2 0 0 2|juicy|shrimp,garlic,olive oil,chili,parsley|none|c|h|shellfish'],
+      ['pimientos', 'Pimientos de padron', 'Blistered small green peppers with sea salt. The odd one is hot.', 'starter|none|fried|1 1 0 0 1|soft|padron pepper,olive oil,salt|none|c|h|'],
+      ['tortilla', 'Tortilla espanola', 'Thick Spanish omelette of potato and onion, served at room temperature.', 'starter|egg|fried|0 2 1 0 1|soft|egg,potato,onion,olive oil|potato|c|c|egg'],
+      ['pulpo', 'Pulpo a la gallega', 'Tender octopus on sliced potato with olive oil and smoked paprika.', 'starter|shellfish|simmered|1 1 0 0 2|tender,chewy|octopus,potato,paprika,olive oil|potato|a|h|shellfish'],
+      ['chorizo-cider', 'Chorizo in cider', 'Spicy chorizo sausage simmered in apple cider.', 'starter|pork|simmered|2 3 1 1 3|juicy|chorizo,cider,bay leaf|none|c|h|'],
+      ['albondigas', 'Albondigas', 'Pork and beef meatballs in a rich tomato sauce.', 'main|mixed|simmered|1 2 1 1 2|tender,saucy|pork,beef,tomato,garlic,breadcrumb,egg|none|c|h|gluten,egg'],
+      ['paella', 'Seafood paella', 'Saffron rice with shrimp, mussels, squid and peas, cooked in a wide pan.', 'main|shellfish|simmered|0 2 0 0 3|crispy,soft|rice,shrimp,mussel,squid,saffron,pea,bell pepper|rice|c|h|shellfish,fish'],
+      ['paella-veg', 'Vegetable paella', 'Saffron rice with artichoke, green beans, peppers and tomato.', 'main|none|simmered|0 1 0 0 2|soft,crispy|rice,artichoke,green bean,bell pepper,tomato,saffron|rice|c|h|'],
+      ['pollo-ajillo', 'Garlic chicken', 'Chicken thighs braised with garlic, white wine and thyme.', 'main|chicken|braised|0 2 0 1 2|tender,juicy|chicken,garlic,white wine,thyme,olive oil|none|c|h|'],
+      ['bacalao', 'Salt cod with tomato', 'Flakes of salt cod baked in tomato, pepper and onion sauce.', 'main|fish|baked|0 1 1 1 2|tender,saucy|salt cod,tomato,bell pepper,onion,garlic|none|a|h|fish'],
+      ['secreto', 'Grilled iberico pork', 'Juicy grilled cut of iberico pork with romesco sauce.', 'main|pork|grilled|0 3 0 0 3|juicy|pork,romesco,almond,red pepper|none|c|h|tree_nut'],
+      ['churros-choc', 'Churros with chocolate', 'Fried dough sticks with thick hot chocolate for dipping.', 'dessert|none|fried|0 2 3 0 0|crispy|flour,sugar,chocolate,milk|none|c|h|gluten,dairy'],
+      ['crema-catalana', 'Crema catalana', 'Citrus and cinnamon custard with a burnt sugar crust.', 'dessert|egg|baked|0 3 3 0 0|creamy|milk,egg,lemon,cinnamon,sugar|none|c|c|dairy,egg'],
+    ],
+  },
+  {
+    id: 'steakhouse', cuisine: 'american', title: 'Steakhouse', place: 'An upscale steakhouse', tier: '$$$$',
+    prices: '19 24 14 15 16 68 62 56 48 38 58 34 29 12 12 13 14',
+    dishes: [
+      ['shrimp-cocktail', 'Shrimp cocktail', 'Chilled jumbo shrimp with horseradish cocktail sauce.', 'starter|shellfish|simmered|1 0 1 1 1|juicy|shrimp,horseradish,ketchup,lemon|none|c|c|shellfish'],
+      ['oysters', 'Oysters on the half shell', 'Raw oysters on ice with shallot vinegar and lemon.', 'starter|shellfish|raw|0 1 0 2 2|soft|oyster,shallot,vinegar,lemon|none|a|c|shellfish'],
+      ['wedge', 'Wedge salad', 'Crisp iceberg with blue cheese dressing, bacon and tomato.', 'salad|none|fresh|0 2 0 1 2|crunchy|lettuce,blue cheese,bacon,tomato,red onion|none|c|c|dairy|meat'],
+      ['caesar', 'Caesar salad', 'Romaine, parmesan and croutons in a creamy anchovy and garlic dressing.', 'salad|none|fresh|0 2 0 1 2|crunchy|romaine,parmesan,crouton,anchovy,egg,garlic,lemon|none|c|c|dairy,gluten,egg,fish'],
+      ['lobster-bisque', 'Lobster bisque', 'Smooth, rich lobster soup with cream and brandy.', 'soup|shellfish|simmered|0 3 1 0 3|creamy|lobster,cream,brandy,tomato,butter|none|c|h|shellfish,dairy'],
+      ['ribeye', 'Bone-in ribeye', 'A thick, well-marbled ribeye grilled over a hot flame, with herb butter.', 'main|beef|grilled|0 3 0 0 3|juicy|beef,butter,garlic,rosemary|none|c|h|dairy'],
+      ['filet', 'Filet mignon', 'The most tender steak, with a red wine and shallot sauce.', 'main|beef|grilled|0 2 0 1 3|tender,juicy|beef,red wine,shallot,butter|none|c|h|dairy'],
+      ['ny-strip', 'New York strip', 'A firm, beefy steak with a peppercorn crust.', 'main|beef|grilled|1 2 0 0 3|juicy,chewy|beef,black pepper,butter|none|c|h|dairy'],
+      ['lamb-rack', 'Rack of lamb', 'Herb-crusted lamb chops roasted pink, with mint sauce.', 'main|lamb|roasted|0 3 1 1 2|tender,juicy|lamb,rosemary,garlic,mustard,breadcrumb,mint|none|c|h|gluten'],
+      ['cedar-salmon', 'Cedar plank salmon', 'Salmon roasted on a cedar plank with a maple mustard glaze.', 'main|fish|roasted|0 2 2 0 2|tender|salmon,maple syrup,mustard,lemon|none|c|h|fish'],
+      ['lobster-tail', 'Lobster tail', 'Broiled lobster tail with drawn butter and lemon.', 'main|shellfish|grilled|0 3 1 0 2|tender,juicy|lobster,butter,lemon|none|c|h|shellfish,dairy'],
+      ['half-chicken', 'Roast half chicken', 'Crisp-skinned roast chicken with lemon and thyme jus.', 'main|chicken|roasted|0 2 0 1 2|crispy,juicy|chicken,lemon,thyme,garlic|none|c|h|'],
+      ['portobello', 'Portobello steak', 'Grilled portobello mushroom with chimichurri. Made vegan.', 'main|none|grilled|1 1 0 1 3|juicy,tender|portobello mushroom,parsley,garlic,vinegar,chili|none|c|h||vegan'],
+      ['creamed-spinach', 'Creamed spinach', 'Spinach in a rich cream sauce with nutmeg and parmesan.', 'side|none|simmered|0 3 0 0 1|creamy|spinach,cream,butter,nutmeg,parmesan|none|c|h|dairy'],
+      ['loaded-potato', 'Loaded baked potato', 'Baked potato with sour cream, cheddar, bacon and chives.', 'side|none|baked|0 3 0 0 2|soft,creamy|potato,sour cream,cheddar,bacon,chive|potato|c|h|dairy|meat'],
+      ['truffle-fries', 'Truffle fries', 'Fries tossed with truffle oil and parmesan.', 'side|none|fried|0 2 0 0 2|crispy|potato,truffle oil,parmesan|potato|c|h|dairy'],
+      ['ny-cheesecake', 'New York cheesecake', 'Dense, creamy cheesecake on a graham cracker crust.', 'dessert|cheese|baked|0 3 3 1 0|creamy|cream cheese,egg,sugar,graham cracker|none|c|c|dairy,egg,gluten'],
+    ],
+  },
+  {
+    id: 'pizzeria', cuisine: 'italian', title: 'Pizzeria', place: 'A casual neighbourhood pizzeria', tier: '$',
+    prices: '6 9 11 16 17 16 17 18 13 15 13 14 6',
+    dishes: [
+      ['garlic-knots', 'Garlic knots', 'Soft knots of pizza dough brushed with garlic butter and parsley.', 'starter|none|baked|0 2 0 0 1|soft,chewy|pizza dough,garlic,butter,parsley|bread|c|h|gluten,dairy'],
+      ['arancini', 'Arancini', 'Fried risotto balls with a melting mozzarella centre, with marinara.', 'starter|cheese|fried|0 3 0 0 2|crispy,creamy|arborio rice,mozzarella,breadcrumb,egg,marinara|rice|c|h|gluten,dairy,egg'],
+      ['antipasto', 'Antipasto salad', 'Chopped lettuce with salami, provolone, olives, peppers and red onion.', 'salad|pork|fresh|1 2 0 2 2|crunchy|lettuce,salami,provolone,olive,pepperoncini,red onion|none|c|c|dairy'],
+      ['pepperoni', 'Pepperoni pizza', 'Classic pizza with tomato, mozzarella and crisp cups of pepperoni.', 'main|pork|baked|1 3 0 1 2|chewy,crispy|pizza dough,tomato,mozzarella,pepperoni|bread|c|h|gluten,dairy'],
+      ['four-cheese', 'Four cheese pizza', 'White pizza with mozzarella, gorgonzola, parmesan and ricotta.', 'main|cheese|baked|0 3 0 0 2|chewy,creamy|pizza dough,mozzarella,gorgonzola,parmesan,ricotta|bread|c|h|gluten,dairy'],
+      ['garden-pizza', 'Garden pizza', 'Tomato, mozzarella, mushrooms, peppers, onion and black olives.', 'main|cheese|baked|0 2 1 1 2|chewy|pizza dough,tomato,mozzarella,mushroom,bell pepper,onion,olive|bread|c|h|gluten,dairy'],
+      ['bbq-pizza', 'BBQ chicken pizza', 'Barbecue sauce, chicken, red onion, mozzarella and cilantro.', 'main|chicken|baked|0 2 3 0 2|chewy|pizza dough,chicken,barbecue sauce,red onion,mozzarella,cilantro|bread|c|h|gluten,dairy'],
+      ['hot-honey', 'Hot honey soppressata pizza', 'Spicy salami pizza drizzled with chili-infused honey.', 'main|pork|baked|2 3 2 0 2|chewy,crispy|pizza dough,tomato,mozzarella,salami,honey,chili|bread|c|h|gluten,dairy'],
+      ['marinara-pizza', 'Marinara pizza', 'No cheese: tomato, garlic, oregano and olive oil on a thin crust. Vegan.', 'main|none|baked|0 1 1 1 1|crispy|pizza dough,tomato,garlic,oregano,olive oil|bread|c|h|gluten|vegan'],
+      ['calzone', 'Calzone', 'Folded pizza stuffed with ricotta, mozzarella and ham.', 'main|pork|baked|0 3 0 0 2|chewy,creamy|pizza dough,ricotta,mozzarella,ham|bread|c|h|gluten,dairy'],
+      ['meatball-sub', 'Meatball sub', 'Beef meatballs in marinara with melted provolone on a toasted roll.', 'main|beef|baked|0 3 1 1 2|soft,saucy|beef,roll,marinara,provolone,breadcrumb,egg|bread|c|h|gluten,dairy,egg'],
+      ['baked-ziti', 'Baked ziti', 'Pasta baked with tomato sauce, ricotta and mozzarella.', 'main|cheese|baked|0 3 1 1 2|creamy,saucy|ziti,tomato,ricotta,mozzarella|noodle|c|h|gluten,dairy'],
+      ['cannoli', 'Cannoli', 'Crisp pastry shells filled with sweet ricotta and chocolate chips.', 'dessert|cheese|fried|0 3 3 0 0|crunchy,creamy|pastry,ricotta,sugar,chocolate|none|c|c|gluten,dairy'],
+    ],
+  },
+  {
+    id: 'ramen-bar', cuisine: 'japanese', title: 'Ramen bar', place: 'A ramen and izakaya counter', tier: '$',
+    prices: '8 9 7 8 15 16 15 17 16 14 13 12 4 5',
+    dishes: [
+      ['karaage', 'Chicken karaage', 'Juicy bite-size fried chicken marinated in soy and ginger, with lemon.', 'starter|chicken|fried|0 2 0 1 2|crispy,juicy|chicken,soy sauce,ginger,potato starch,lemon|none|c|h|soy,gluten'],
+      ['takoyaki', 'Takoyaki', 'Fried batter balls with octopus, topped with sauce, mayo and bonito flakes.', 'starter|shellfish|fried|0 2 2 0 3|crispy,soft|octopus,flour,egg,mayonnaise,bonito,scallion|none|a|h|shellfish,gluten,egg,fish,soy'],
+      ['shishito', 'Blistered shishito peppers', 'Charred mild peppers with sea salt and lemon.', 'starter|none|grilled|1 0 0 1 1|soft|shishito pepper,salt,lemon|none|c|h|'],
+      ['pork-bao', 'Pork belly bao', 'Soft steamed bun with braised pork belly, hoisin and pickled cucumber.', 'starter|pork|steamed|0 3 2 1 3|soft,tender|bao bun,pork belly,hoisin,cucumber,scallion|bread|c|h|gluten,soy'],
+      ['shoyu-ramen', 'Shoyu ramen', 'Clear soy sauce chicken broth with wavy noodles, chashu pork, egg and bamboo shoots.', 'main|pork|simmered|0 2 0 0 3|brothy,chewy|ramen noodle,chicken broth,soy sauce,pork,egg,bamboo shoot,nori|noodle|c|h|gluten,soy,egg'],
+      ['miso-ramen', 'Spicy miso ramen', 'Rich miso broth with chili oil, minced pork, corn and butter.', 'main|pork|simmered|2 3 1 0 3|brothy,chewy|ramen noodle,miso,chili oil,pork,corn,butter,bean sprout|noodle|c|h|gluten,soy,dairy,sesame'],
+      ['vegan-ramen', 'Vegan sesame ramen', 'Creamy sesame and soy milk broth with tofu, greens and mushrooms.', 'main|tofu|simmered|1 2 1 0 3|brothy,creamy|ramen noodle,soy milk,sesame paste,tofu,bok choy,mushroom|noodle|c|h|gluten,soy,sesame|vegan'],
+      ['tsukemen', 'Tsukemen', 'Thick cold noodles to dip in a concentrated pork and fish broth.', 'main|pork|simmered|0 3 1 1 3|chewy|ramen noodle,pork,bonito,soy sauce,egg|noodle|a|h|gluten,soy,fish,egg'],
+      ['paitan', 'Chicken paitan ramen', 'Creamy chicken broth with chicken breast, leek and a squeeze of yuzu.', 'main|chicken|simmered|0 2 0 1 3|brothy,creamy|ramen noodle,chicken,leek,yuzu,egg|noodle|c|h|gluten,egg,soy'],
+      ['katsudon', 'Katsudon', 'Breaded pork cutlet simmered with egg and onion over rice.', 'main|pork|fried|0 3 2 0 3|crispy,soft|pork,panko,egg,onion,dashi,rice|rice|c|h|gluten,egg,soy,fish'],
+      ['curry-rice', 'Japanese curry rice', 'Mild, sweet curry with potato, carrot and crispy fried chicken.', 'main|chicken|simmered|1 3 2 0 2|saucy|curry,chicken,potato,carrot,onion,rice|rice|c|h|gluten,soy,dairy'],
+      ['yakitori', 'Yakitori set', 'Grilled skewers of chicken thigh, chicken meatball and scallion with a sweet soy glaze.', 'main|chicken|grilled|0 2 2 0 3|juicy,tender|chicken,scallion,soy sauce,mirin|none|c|h|soy,gluten'],
+      ['onigiri', 'Salmon onigiri', 'Rice ball with grilled salmon, wrapped in nori.', 'side|fish|fresh|0 0 0 0 2|soft|rice,salmon,nori|rice|c|c|fish'],
+      ['matcha', 'Matcha ice cream', 'Green tea ice cream, lightly bitter and sweet.', 'dessert|none|fresh|0 2 2 0 0|creamy|matcha,ice cream|none|c|c|dairy'],
+    ],
+  },
+  {
+    id: 'dim-sum', cuisine: 'chinese', title: 'Dim sum', place: 'A Cantonese dim sum teahouse', tier: '$$',
+    prices: '7 7 9 6 7 6 6 6 8 9 15 15 22 9 6',
+    dishes: [
+      ['har-gow', 'Har gow', 'Translucent steamed dumplings filled with whole shrimp.', 'starter|shellfish|steamed|0 1 0 0 2|chewy,soft|shrimp,wheat starch,bamboo shoot|none|c|h|shellfish,gluten'],
+      ['siu-mai', 'Siu mai', 'Open-topped steamed dumplings of pork and shrimp.', 'starter|mixed|steamed|0 2 0 0 3|juicy|pork,shrimp,mushroom,wheat wrapper|none|c|h|shellfish,gluten,soy'],
+      ['xlb', 'Soup dumplings (xiao long bao)', 'Delicate dumplings filled with pork and hot broth.', 'starter|pork|steamed|0 2 1 0 3|juicy,soft|pork,ginger,wheat wrapper,broth|none|c|h|gluten,soy'],
+      ['char-siu-bao', 'Char siu bao', 'Fluffy steamed buns filled with sweet barbecue pork.', 'starter|pork|steamed|0 2 3 0 2|soft|pork,flour,hoisin,oyster sauce|bread|c|h|gluten,soy,shellfish'],
+      ['cheung-fun', 'Shrimp rice noodle rolls', 'Silky rice noodle sheets rolled around shrimp, with sweet soy sauce.', 'starter|shellfish|steamed|0 1 1 0 2|soft|rice noodle,shrimp,soy sauce|noodle|c|h|shellfish,soy,gluten'],
+      ['turnip-cake', 'Pan-fried turnip cake', 'Savoury radish and rice flour cake with Chinese sausage and dried shrimp.', 'starter|pork|fried|0 2 0 0 2|crispy,soft|daikon,rice flour,chinese sausage,dried shrimp|none|a|h|shellfish'],
+      ['chicken-feet', 'Phoenix claws', 'Braised chicken feet in black bean sauce.', 'starter|chicken|braised|1 2 1 0 3|chewy,soft|chicken feet,black bean sauce,chili|none|a|h|soy,gluten'],
+      ['spare-ribs', 'Steamed spare ribs', 'Small pieces of pork rib steamed with black bean and garlic.', 'starter|pork|steamed|1 2 0 0 3|tender|pork rib,black bean,garlic,chili|none|c|h|soy,gluten'],
+      ['lo-mai-gai', 'Sticky rice in lotus leaf', 'Glutinous rice with chicken, mushroom and sausage, steamed in a lotus leaf.', 'main|chicken|steamed|0 2 1 0 3|sticky|sticky rice,chicken,mushroom,chinese sausage,lotus leaf|rice|a|h|soy'],
+      ['congee', 'Pork and century egg congee', 'Silky rice porridge with pork and preserved egg.', 'main|pork|simmered|0 1 0 0 2|soft|rice,pork,century egg,ginger,scallion|rice|a|h|egg'],
+      ['chow-fun', 'Beef chow fun', 'Wide rice noodles wok-fried with beef, bean sprouts and soy.', 'main|beef|stir_fried|0 2 1 0 3|chewy|wide rice noodle,beef,bean sprout,scallion,soy sauce|noodle|c|h|soy,gluten'],
+      ['salt-pepper-squid', 'Salt and pepper squid', 'Crispy fried squid tossed with chili, garlic and scallion.', 'main|shellfish|fried|1 2 0 0 2|crispy|squid,chili,garlic,scallion,flour|none|c|h|shellfish,gluten'],
+      ['roast-duck', 'Cantonese roast duck', 'Roast duck with crisp skin and plum sauce.', 'main|duck|roasted|0 3 2 0 3|crispy,tender|duck,plum sauce,five spice,soy sauce|none|c|h|soy,gluten'],
+      ['gai-lan', 'Chinese broccoli with oyster sauce', 'Blanched gai lan with oyster sauce and garlic.', 'side|none|steamed|0 0 1 0 2|crunchy|chinese broccoli,oyster sauce,garlic|none|c|h|shellfish,soy,gluten|pescatarian'],
+      ['mango-pudding', 'Mango pudding', 'Chilled, creamy mango pudding with evaporated milk.', 'dessert|none|fresh|0 2 3 0 0|creamy,soft|mango,evaporated milk,agar|none|c|c|dairy'],
+    ],
+  },
+  {
+    id: 'peruvian', cuisine: 'other', title: 'Peruvian', place: 'A Peruvian cevicheria', tier: '$$',
+    prices: '16 11 9 12 7 22 18 19 24 26 23 15 11 8 8',
+    dishes: [
+      ['ceviche-clasico', 'Ceviche clasico', 'Raw white fish cured in lime with red onion, chili, sweet potato and corn.', 'starter|fish|raw|2 0 1 3 1|tender|fish,lime,red onion,aji chili,sweet potato,corn|none|a|c|fish'],
+      ['causa', 'Causa limena', 'Layered cold mashed potato with lime and chili, filled with chicken and avocado.', 'starter|chicken|fresh|1 2 0 2 1|creamy,soft|potato,lime,aji amarillo,chicken,avocado,mayonnaise|potato|c|c|egg'],
+      ['huancaina', 'Papa a la huancaina', 'Boiled potatoes in a creamy, mildly spicy cheese and yellow chili sauce.', 'starter|cheese|simmered|1 3 0 0 1|creamy|potato,queso fresco,aji amarillo,milk,cracker,egg|potato|c|c|dairy,gluten,egg'],
+      ['anticuchos', 'Anticuchos', 'Grilled skewers of marinated beef heart with chili and cumin.', 'starter|beef|grilled|2 1 0 1 3|chewy|beef heart,aji panca,cumin,garlic,vinegar|none|a|h|'],
+      ['choclo', 'Choclo con queso', 'Giant Andean corn with fresh cheese.', 'side|cheese|steamed|0 1 1 0 1|chewy|corn,queso fresco|none|c|h|dairy'],
+      ['lomo-saltado', 'Lomo saltado', 'Beef stir-fried with tomato, onion and soy sauce, with fries and rice.', 'main|beef|stir_fried|1 2 1 1 3|juicy,tender|beef,tomato,red onion,soy sauce,potato,rice|rice|c|h|soy,gluten'],
+      ['aji-gallina', 'Aji de gallina', 'Shredded chicken in a creamy yellow chili, walnut and cheese sauce, with rice.', 'main|chicken|simmered|1 3 0 0 2|creamy|chicken,aji amarillo,bread,milk,walnut,parmesan,rice|rice|c|h|dairy,gluten,tree_nut'],
+      ['pollo-brasa', 'Pollo a la brasa', 'Rotisserie chicken marinated in cumin and garlic, with fries and green chili sauce.', 'main|chicken|roasted|1 2 0 1 2|juicy,crispy|chicken,cumin,garlic,potato,aji verde|potato|c|h|dairy,egg'],
+      ['arroz-mariscos', 'Arroz con mariscos', 'Peruvian seafood rice with shrimp, squid and mussels in a chili sauce.', 'main|shellfish|simmered|1 2 0 0 3|soft|rice,shrimp,squid,mussel,aji panca,pea|rice|c|h|shellfish'],
+      ['jalea', 'Jalea', 'A crispy platter of fried fish and seafood with onion salsa and fried yuca.', 'main|shellfish|fried|1 2 0 2 2|crispy|fish,shrimp,squid,yuca,red onion,lime,flour|none|c|h|fish,shellfish,gluten'],
+      ['seco', 'Seco de cordero', 'Lamb stewed in cilantro and beer, with beans and rice.', 'main|lamb|braised|1 2 0 0 2|tender,saucy|lamb,cilantro,beer,aji chili,bean,rice|rice|a|h|gluten'],
+      ['tacu-tacu', 'Tacu tacu', 'Crispy fried patty of rice and beans with a fried egg and onion salsa.', 'main|legumes|fried|1 1 0 1 2|crispy,soft|rice,canary bean,egg,red onion,lime|rice|c|h|egg'],
+      ['quinoa-salad', 'Quinoa salad', 'Quinoa with tomato, cucumber, avocado and lime. Vegan.', 'salad|none|fresh|0 1 0 2 1|crunchy|quinoa,tomato,cucumber,avocado,lime|none|c|c||vegan'],
+      ['picarones', 'Picarones', 'Sweet potato and squash doughnuts with dark sugar syrup.', 'dessert|none|fried|0 2 3 0 0|crispy,soft|sweet potato,squash,flour,cinnamon|none|a|h|gluten'],
+      ['suspiro', 'Suspiro limeno', 'Dulce de leche custard topped with port meringue.', 'dessert|egg|fresh|0 3 3 0 0|creamy|condensed milk,egg,port wine|none|a|c|dairy,egg'],
+    ],
+  },
+  {
+    id: 'caribbean', cuisine: 'other', title: 'Caribbean', place: 'A Jamaican and Caribbean takeaway', tier: '$',
+    prices: '4 6 3 4 4 13 14 15 17 16 16 11 4 5',
+    dishes: [
+      ['patty', 'Beef patty', 'Flaky turmeric pastry filled with spiced minced beef.', 'starter|beef|baked|1 2 0 0 2|crispy|beef,flour,turmeric,scotch bonnet,thyme|none|c|h|gluten'],
+      ['saltfish-fritters', 'Saltfish fritters', 'Crispy fried fritters of salt cod, scallion and pepper.', 'starter|fish|fried|1 2 0 0 2|crispy|salt cod,flour,scallion,scotch bonnet|none|c|h|fish,gluten'],
+      ['festival', 'Festival', 'Sweet fried cornmeal dumplings.', 'side|none|fried|0 2 2 0 0|crispy,soft|cornmeal,flour,sugar|bread|c|h|gluten'],
+      ['fried-plantain', 'Fried plantain', 'Ripe plantain slices fried until caramelised.', 'side|none|fried|0 1 3 0 0|soft,sticky|plantain,oil|none|c|h|'],
+      ['rice-peas', 'Rice and peas', 'Rice cooked with kidney beans, coconut milk and thyme.', 'side|legumes|simmered|0 2 0 0 1|soft|rice,kidney bean,coconut milk,thyme,scallion|rice|c|h|'],
+      ['jerk-chicken', 'Jerk chicken', 'Chicken marinated in scotch bonnet, allspice and thyme, grilled over wood.', 'main|chicken|grilled|3 1 1 1 2|juicy,crispy|chicken,scotch bonnet,allspice,thyme,scallion,lime|rice|c|h|'],
+      ['jerk-pork', 'Jerk pork', 'Smoky grilled pork with fiery jerk seasoning.', 'main|pork|grilled|3 2 1 1 2|juicy|pork,scotch bonnet,allspice,thyme|rice|c|h|'],
+      ['curry-goat', 'Curry goat', 'Goat slow-cooked in Caribbean curry with potato.', 'main|lamb|braised|2 2 0 0 2|tender,saucy|goat,curry,potato,scotch bonnet,thyme|rice|a|h|'],
+      ['oxtail', 'Oxtail stew', 'Oxtail braised until sticky with butter beans and allspice.', 'main|beef|braised|1 3 1 0 3|tender,sticky|oxtail,butter bean,allspice,thyme,soy sauce|rice|a|h|soy,gluten'],
+      ['ackee', 'Ackee and saltfish', 'Jamaica\'s national dish: ackee fruit sauteed with salt cod, onion and peppers.', 'main|fish|stir_fried|1 2 0 0 2|soft|ackee,salt cod,onion,bell pepper,scotch bonnet|none|a|h|fish'],
+      ['escovitch', 'Escovitch fish', 'Fried whole fish under a tangy pickle of onion, carrot and pepper.', 'main|fish|fried|2 1 1 3 1|crispy|fish,vinegar,onion,carrot,scotch bonnet|none|a|h|fish'],
+      ['roti', 'Chickpea and potato roti', 'Soft flatbread wrapped around chickpea and potato curry.', 'main|legumes|simmered|1 1 0 0 1|soft|roti,chickpea,potato,curry,flour|bread|c|h|gluten|vegan'],
+      ['callaloo', 'Callaloo', 'Leafy greens steamed with onion, garlic and thyme.', 'side|none|steamed|0 0 0 0 1|soft|callaloo,onion,garlic,thyme|none|c|h|'],
+      ['rum-cake', 'Rum cake', 'Dense, moist cake soaked in dark rum.', 'dessert|none|baked|0 2 3 0 0|soft|flour,butter,egg,rum,raisin|none|c|h|gluten,dairy,egg'],
+    ],
+  },
+  {
+    id: 'bbq', cuisine: 'american', title: 'Texas barbecue', place: 'A Texas-style barbecue joint', tier: '$$',
+    prices: '24 13 18 15 12 32 14 6 4 5 5 4 6 7',
+    dishes: [
+      ['brisket', 'Smoked brisket', 'Slow-smoked beef brisket with a peppery bark, sliced thick.', 'main|beef|roasted|0 3 0 0 3|tender,juicy|beef brisket,black pepper,salt|none|c|h|'],
+      ['pulled-pork', 'Pulled pork sandwich', 'Smoked pork shoulder pulled and piled on a bun with slaw.', 'main|pork|roasted|0 3 2 1 2|tender|pork,bun,barbecue sauce,cabbage|bread|c|h|gluten'],
+      ['burnt-ends', 'Burnt ends', 'Caramelised, smoky cubes of brisket in a sweet glaze.', 'main|beef|roasted|0 3 3 0 3|sticky,tender|beef brisket,barbecue sauce,brown sugar|none|c|h|'],
+      ['smoked-chicken', 'Smoked half chicken', 'Juicy chicken smoked over oak with a dry rub.', 'main|chicken|roasted|1 2 1 0 2|juicy|chicken,paprika,garlic,brown sugar|none|c|h|'],
+      ['hot-links', 'Hot links', 'Coarse, spicy smoked sausages of pork and beef.', 'main|mixed|roasted|2 3 0 0 2|juicy,chewy|pork,beef,chili,garlic|none|c|h|'],
+      ['beef-rib', 'Smoked beef rib', 'A huge, smoky beef short rib.', 'main|beef|roasted|0 3 0 0 3|tender|beef short rib,black pepper|none|c|h|'],
+      ['smoked-tofu', 'Smoked tofu plate', 'Smoked, glazed tofu slabs with pickles and white bread. Vegan.', 'main|tofu|roasted|1 1 2 1 2|chewy|tofu,barbecue sauce,pickle,bread|bread|c|h|soy,gluten|vegan'],
+      ['smoked-mac', 'Smoked mac and cheese', 'Creamy mac and cheese with a smoky crust.', 'side|cheese|baked|0 3 0 0 2|creamy|macaroni,cheddar,milk,breadcrumb|noodle|c|h|gluten,dairy'],
+      ['cornbread', 'Cornbread', 'Sweet, buttery cornbread with honey butter.', 'side|none|baked|0 2 2 0 0|soft|cornmeal,butter,egg,honey,flour|bread|c|h|gluten,dairy,egg'],
+      ['collards', 'Collard greens', 'Slow-cooked collards with smoked turkey.', 'side|none|braised|1 1 0 1 2|soft|collard green,smoked turkey,vinegar|none|c|h||meat'],
+      ['bbq-beans', 'BBQ beans', 'Baked beans with brisket ends and molasses.', 'side|legumes|baked|0 2 3 0 2|saucy|bean,beef brisket,molasses|none|c|h||meat'],
+      ['potato-salad', 'Potato salad', 'Creamy mustard potato salad with egg and pickles.', 'side|none|fresh|0 2 0 1 1|creamy|potato,mayonnaise,mustard,egg,pickle|potato|c|c|egg'],
+      ['banana-pudding', 'Banana pudding', 'Layers of vanilla pudding, banana and wafer cookies.', 'dessert|none|fresh|0 3 3 0 0|creamy,soft|banana,milk,egg,vanilla wafer|none|c|c|dairy,egg,gluten'],
+      ['pecan-pie', 'Pecan pie', 'Sticky, rich pecan pie.', 'dessert|none|baked|0 3 3 0 0|sticky,crunchy|pecan,corn syrup,egg,butter,pastry|none|c|h|tree_nut,egg,dairy,gluten'],
+    ],
+  },
+  {
+    id: 'seafood-house', cuisine: 'american', title: 'Seafood house', place: 'A New England seafood restaurant and oyster bar', tier: '$$$',
+    prices: '18 19 17 11 34 24 32 36 38 26 27 31 8 10',
+    dishes: [
+      ['crab-cakes', 'Crab cakes', 'Pan-fried lump crab cakes with remoulade.', 'starter|shellfish|fried|0 2 0 1 2|crispy,tender|crab,breadcrumb,mayonnaise,egg,mustard|none|c|h|shellfish,gluten,egg'],
+      ['tuna-tartare', 'Tuna tartare', 'Diced raw tuna with avocado, soy and sesame, with wonton crisps.', 'starter|fish|raw|1 1 0 1 2|soft,crunchy|tuna,avocado,soy sauce,sesame,wonton|none|a|c|fish,soy,sesame,gluten'],
+      ['steamers', 'Steamed clams', 'Littleneck clams steamed with garlic, butter and white wine.', 'starter|shellfish|steamed|0 2 0 1 2|tender,brothy|clam,garlic,butter,white wine|none|c|h|shellfish,dairy'],
+      ['ne-chowder', 'New England clam chowder', 'Thick, creamy clam and potato soup with bacon.', 'soup|shellfish|simmered|0 3 0 0 2|creamy|clam,potato,cream,bacon,onion|potato|c|h|shellfish,dairy|meat'],
+      ['lobster-roll', 'Lobster roll', 'Chunks of lobster in butter on a toasted split-top bun.', 'main|shellfish|fresh|0 3 1 0 2|tender|lobster,butter,bun,lemon,celery|bread|c|c|shellfish,dairy,gluten'],
+      ['fish-chips', 'Fish and chips', 'Beer-battered haddock with fries, tartar sauce and coleslaw.', 'main|fish|fried|0 3 0 1 1|crispy|haddock,beer batter,potato,tartar sauce,cabbage|potato|c|h|fish,gluten,egg'],
+      ['swordfish', 'Grilled swordfish', 'Swordfish steak grilled with lemon, capers and herbs.', 'main|fish|grilled|0 1 0 2 2|juicy|swordfish,lemon,caper,olive oil|none|c|h|fish'],
+      ['scallops', 'Seared scallops', 'Golden scallops with brown butter, peas and bacon.', 'main|shellfish|fried|0 3 1 0 3|tender|scallop,butter,pea,bacon|none|c|h|shellfish,dairy|meat'],
+      ['cioppino', 'Cioppino', 'San Francisco fish stew of crab, shrimp, mussels and fish in a tomato and wine broth.', 'main|shellfish|simmered|1 1 1 1 3|brothy|crab,shrimp,mussel,fish,tomato,white wine,garlic|none|c|h|shellfish,fish'],
+      ['blackened-catfish', 'Blackened catfish', 'Cajun-spiced catfish seared hot, with dirty rice.', 'main|fish|fried|2 2 0 0 2|crispy,tender|catfish,cajun spice,rice,bell pepper|rice|c|h|fish'],
+      ['shrimp-grits', 'Shrimp and grits', 'Spicy sauteed shrimp with andouille sausage over creamy cheese grits.', 'main|shellfish|stir_fried|2 3 0 0 3|creamy|shrimp,andouille,grits,cheddar,butter|none|c|h|shellfish,dairy|meat'],
+      ['seafood-linguine', 'Seafood linguine', 'Linguine with shrimp, scallops and clams in garlic butter.', 'main|shellfish|simmered|0 2 0 1 3|saucy|linguine,shrimp,scallop,clam,garlic,butter|noodle|c|h|shellfish,gluten,dairy'],
+      ['hush-puppies', 'Hush puppies', 'Crispy fried cornmeal fritters with honey butter.', 'side|none|fried|0 2 1 0 0|crispy|cornmeal,flour,egg,onion,butter|bread|c|h|gluten,egg,dairy'],
+      ['key-lime', 'Key lime pie', 'Tart, creamy lime pie on a graham crust.', 'dessert|none|baked|0 3 3 3 0|creamy|lime,condensed milk,egg,graham cracker|none|c|c|dairy,egg,gluten'],
+    ],
+  },
+  {
+    id: 'plant-cafe', cuisine: 'other', title: 'Plant-based cafe', place: 'A vegan cafe and juice bar', tier: '$$',
+    prices: '12 11 8 16 15 17 13 16 15 15 13 13 6 8 5',
+    dishes: [
+      ['avocado-toast', 'Avocado toast', 'Smashed avocado on sourdough with chili flakes, lime and pumpkin seeds.', 'starter|none|fresh|1 1 0 1 1|crunchy,creamy|sourdough,avocado,chili,lime,pumpkin seed|bread|c|c|gluten|vegan'],
+      ['cauli-bites', 'Buffalo cauliflower', 'Crispy cauliflower bites in hot sauce with a cashew ranch dip.', 'starter|none|fried|2 2 0 2 1|crispy|cauliflower,hot sauce,flour,cashew|none|c|h|gluten,tree_nut|vegan'],
+      ['tomato-soup', 'Roasted tomato soup', 'Smooth roasted tomato and red pepper soup with basil.', 'soup|none|simmered|0 1 1 1 2|creamy|tomato,red pepper,basil,garlic,olive oil|none|c|h||vegan'],
+      ['buddha-bowl', 'Buddha bowl', 'Brown rice with roasted sweet potato, chickpeas, kale, avocado and tahini.', 'main|legumes|roasted|0 2 1 1 1|soft,crunchy|brown rice,sweet potato,chickpea,kale,avocado,tahini|rice|c|c|sesame|vegan'],
+      ['jackfruit-tacos', 'Jackfruit tacos', 'Slow-cooked jackfruit in smoky chili, in corn tortillas with pickled onion.', 'main|none|braised|2 1 1 2 2|tender|jackfruit,chipotle,corn tortilla,pickled onion,cilantro|bread|a|h||vegan'],
+      ['plant-burger', 'Plant burger', 'Pea protein patty with vegan cheese, lettuce, tomato and pickles on a bun.', 'main|legumes|grilled|0 3 1 1 3|juicy|pea protein,vegan cheese,bun,lettuce,tomato,pickle|bread|c|h|gluten,soy|vegan'],
+      ['tofu-scramble', 'Tofu scramble', 'Turmeric tofu scrambled with peppers, spinach and onion, with toast.', 'main|tofu|stir_fried|0 1 0 0 2|soft|tofu,turmeric,bell pepper,spinach,onion,sourdough|bread|c|h|soy,gluten|vegan'],
+      ['stroganoff', 'Mushroom stroganoff', 'Mushrooms in a creamy cashew and paprika sauce over noodles.', 'main|none|simmered|0 3 0 1 3|creamy,saucy|mushroom,cashew,paprika,onion,wheat noodle|noodle|c|h|tree_nut,gluten|vegan'],
+      ['peanut-noodles', 'Peanut sesame noodles', 'Cold noodles in peanut sesame sauce with cucumber, carrot and edamame.', 'main|legumes|fresh|1 2 2 1 2|chewy,crunchy|wheat noodle,peanut,sesame,cucumber,carrot,edamame,soy sauce|noodle|c|c|peanut,sesame,soy,gluten|vegan'],
+      ['chickpea-curry', 'Chickpea and spinach curry', 'Chickpeas and spinach in a coconut tomato curry, with brown rice.', 'main|legumes|simmered|2 2 0 0 1|saucy|chickpea,spinach,coconut milk,tomato,garam masala,brown rice|rice|c|h||vegan'],
+      ['falafel-wrap', 'Falafel wrap', 'Falafel, hummus, pickles and salad in a warm flatbread.', 'main|legumes|fried|0 2 0 1 1|crispy,soft|falafel,hummus,flatbread,pickle,lettuce|bread|c|h|gluten,sesame|vegan'],
+      ['kale-caesar', 'Kale caesar', 'Kale with a cashew caesar dressing, capers and crispy chickpeas.', 'salad|legumes|fresh|0 2 0 2 2|crunchy|kale,cashew,caper,chickpea,lemon,garlic|none|c|c|tree_nut|vegan'],
+      ['sweet-potato-fries', 'Sweet potato fries', 'Crisp sweet potato fries with a smoky chipotle dip.', 'side|none|fried|1 1 2 0 0|crispy|sweet potato,chipotle,soy|potato|c|h|soy|vegan'],
+      ['choc-mousse', 'Chocolate avocado mousse', 'Rich chocolate mousse made with avocado and maple syrup.', 'dessert|none|fresh|0 3 3 0 0|creamy|avocado,cocoa,maple syrup|none|c|c||vegan'],
+      ['banana-bread', 'Banana bread', 'Moist banana bread with walnuts.', 'dessert|none|baked|0 2 3 0 0|soft|banana,flour,walnut,maple syrup|none|c|h|gluten,tree_nut|vegan'],
+    ],
+  },
+  {
+    id: 'turkish', cuisine: 'middle_eastern', title: 'Turkish grill', place: 'A Turkish charcoal grill', tier: '$$',
+    prices: '14 8 8 7 7 19 21 17 15 17 13 26 9 7',
+    dishes: [
+      ['meze', 'Meze platter', 'Hummus, smoky eggplant, tomato ezme and cucumber yogurt with warm bread.', 'starter|legumes|fresh|1 2 0 2 1|creamy|chickpea,tahini,eggplant,tomato,yogurt,cucumber,bread|bread|c|c|sesame,dairy,gluten'],
+      ['lahmacun', 'Lahmacun', 'Thin, crisp flatbread topped with spiced minced lamb, rolled with salad and lemon.', 'starter|lamb|baked|1 1 0 1 2|crispy|flatbread,lamb,tomato,red pepper,parsley,lemon|bread|c|h|gluten'],
+      ['sigara', 'Sigara borek', 'Crisp rolls of filo filled with feta and parsley.', 'starter|cheese|fried|0 2 0 0 1|crispy|filo pastry,feta,parsley,egg|none|c|h|gluten,dairy,egg'],
+      ['mercimek', 'Mercimek soup', 'Red lentil soup with mint butter and lemon.', 'soup|legumes|simmered|0 1 0 1 1|soft|red lentil,onion,carrot,mint,butter,lemon|none|c|h|dairy'],
+      ['coban', 'Shepherd salad', 'Chopped tomato, cucumber, pepper and onion with lemon and sumac.', 'salad|none|fresh|0 0 0 2 0|crunchy|tomato,cucumber,green pepper,onion,parsley,sumac,lemon|none|c|c|'],
+      ['adana', 'Adana kebab', 'Hand-minced lamb with red pepper, grilled on a wide skewer. Spicy.', 'main|lamb|grilled|2 2 0 0 2|juicy|lamb,red pepper,onion,flatbread,sumac|bread|c|h|gluten'],
+      ['iskender', 'Iskender kebab', 'Doner slices over bread with tomato sauce, browned butter and yogurt.', 'main|beef|roasted|0 3 1 1 3|tender,saucy|beef,bread,tomato,butter,yogurt|bread|c|h|gluten,dairy'],
+      ['chicken-shish', 'Chicken shish', 'Marinated chicken cubes grilled on skewers, with rice and salad.', 'main|chicken|grilled|1 1 0 1 2|juicy|chicken,yogurt,red pepper paste,rice|rice|c|h|dairy'],
+      ['imam-bayildi', 'Imam bayildi', 'Whole eggplant stuffed with onion, tomato and garlic, braised in olive oil.', 'main|none|braised|0 2 1 1 2|soft|eggplant,onion,tomato,garlic,olive oil|none|c|h||vegan'],
+      ['manti', 'Manti', 'Tiny beef dumplings with garlic yogurt and chili butter.', 'main|beef|simmered|1 3 0 1 2|soft,saucy|beef,flour,yogurt,garlic,butter,chili|none|a|h|gluten,dairy'],
+      ['pide', 'Cheese and egg pide', 'Boat-shaped bread baked with cheese and egg.', 'main|cheese|baked|0 3 0 0 2|chewy|bread,cheese,egg,butter|bread|c|h|gluten,dairy,egg'],
+      ['sea-bream', 'Grilled sea bream', 'Whole sea bream grilled with lemon, with a rocket salad.', 'main|fish|grilled|0 1 0 1 2|tender|sea bream,lemon,olive oil,arugula|none|c|h|fish'],
+      ['kunefe', 'Kunefe', 'Crisp shredded pastry with melted cheese, soaked in syrup, topped with pistachio.', 'dessert|cheese|baked|0 3 3 0 0|crispy,creamy|kataifi pastry,cheese,syrup,pistachio|none|a|h|gluten,dairy,tree_nut'],
+      ['sutlac', 'Sutlac', 'Baked rice pudding with cinnamon.', 'dessert|none|baked|0 2 3 0 0|creamy|rice,milk,sugar,cinnamon|rice|c|c|dairy'],
+    ],
+  },
+  {
+    id: 'south-indian', cuisine: 'indian', title: 'South Indian', place: 'A South Indian vegetarian tiffin house', tier: '$',
+    prices: '5 5 6 4 9 8 8 9 10 9 14 5 4 4',
+    dishes: [
+      ['idli', 'Idli sambar', 'Soft steamed rice and lentil cakes with lentil sambar and coconut chutney.', 'starter|legumes|steamed|1 0 0 1 1|soft|rice,urad dal,toor dal,tamarind,coconut|rice|c|h||vegan'],
+      ['medu-vada', 'Medu vada', 'Crisp, fluffy lentil doughnuts with sambar.', 'starter|legumes|fried|1 1 0 0 1|crispy,soft|urad dal,curry leaf,black pepper,ginger|none|c|h||vegan'],
+      ['pani-puri', 'Pani puri', 'Hollow crisp shells filled with potato, chickpea and tangy tamarind water.', 'starter|none|fried|2 0 1 3 0|crunchy|semolina,potato,chickpea,tamarind,mint|none|a|c|gluten|vegan'],
+      ['rasam', 'Rasam', 'Thin, peppery tomato and tamarind soup.', 'soup|legumes|simmered|2 0 0 3 1|brothy|tomato,tamarind,black pepper,cumin,curry leaf,toor dal|none|c|h||vegan'],
+      ['mysore-dosa', 'Mysore masala dosa', 'Crisp crepe spread with red chili chutney and filled with spiced potato.', 'main|none|fried|2 1 0 1 1|crispy|rice,urad dal,potato,red chili,ghee|rice|c|h|dairy'],
+      ['rava-dosa', 'Onion rava dosa', 'Lacy, crisp semolina crepe with onion and green chili.', 'main|none|fried|1 1 0 0 1|crispy|semolina,rice flour,onion,green chili,cumin|none|c|h|gluten|vegan'],
+      ['uttapam', 'Vegetable uttapam', 'Thick, soft rice pancake topped with onion, tomato and chili.', 'main|none|fried|1 1 0 1 1|soft|rice,urad dal,onion,tomato,green chili|rice|c|h||vegan'],
+      ['bisi-bele', 'Bisi bele bath', 'Hot, spiced rice and lentil one-pot with vegetables, ghee and cashews.', 'main|legumes|simmered|2 2 0 2 2|soft|rice,toor dal,tamarind,carrot,green bean,ghee,cashew|rice|c|h|dairy,tree_nut'],
+      ['chettinad', 'Chettinad mushroom curry', 'Fiery curry of mushroom with black pepper, fennel and coconut.', 'main|none|simmered|3 2 0 0 2|saucy|mushroom,coconut,black pepper,fennel seed,curry leaf|rice|a|h||vegan'],
+      ['avial', 'Avial', 'Mixed vegetables in coconut and yogurt with curry leaves.', 'main|none|simmered|0 2 0 1 1|soft,creamy|drumstick,carrot,green bean,coconut,yogurt,curry leaf|rice|a|h|dairy'],
+      ['thali', 'South Indian thali', 'A tray of rice, sambar, rasam, two vegetable curries, yogurt, papad and a sweet.', 'main|legumes|simmered|2 2 1 2 2|soft,crunchy|rice,toor dal,tamarind,vegetable,yogurt,papad|rice|c|h|dairy'],
+      ['lemon-rice', 'Lemon rice', 'Rice with lemon, mustard seeds, peanuts and curry leaf.', 'side|none|stir_fried|1 1 0 2 1|crunchy|rice,lemon,mustard seed,peanut,curry leaf|rice|c|h|peanut|vegan'],
+      ['curd-rice', 'Curd rice', 'Cool rice mixed with yogurt, tempered with mustard seed.', 'side|none|fresh|0 1 0 1 0|creamy|rice,yogurt,mustard seed,curry leaf|rice|c|c|dairy'],
+      ['payasam', 'Payasam', 'Warm vermicelli pudding with milk, cardamom, cashews and raisins.', 'dessert|none|simmered|0 2 3 0 0|creamy|wheat vermicelli,milk,cardamom,cashew,raisin|noodle|c|h|dairy,tree_nut,gluten'],
+    ],
+  },
+  {
+    id: 'brunch', cuisine: 'american', title: 'Brunch cafe', place: 'A weekend brunch cafe', tier: '$$',
+    prices: '9 16 14 13 17 15 13 13 16 12 14 5 6',
+    dishes: [
+      ['yogurt-bowl', 'Yogurt and granola', 'Thick yogurt with granola, berries and honey.', 'starter|none|fresh|0 1 2 1 0|creamy,crunchy|yogurt,granola,berry,honey,almond|none|c|c|dairy,gluten,tree_nut'],
+      ['benedict', 'Eggs Benedict', 'Poached eggs and ham on English muffins with hollandaise.', 'main|egg|steamed|0 3 0 1 2|soft,creamy|egg,ham,english muffin,hollandaise,butter|bread|c|h|egg,gluten,dairy|meat'],
+      ['huevos', 'Huevos rancheros', 'Fried eggs on corn tortillas with black beans, red salsa, avocado and fresh cheese.', 'main|egg|fried|2 1 0 1 2|soft|egg,corn tortilla,black bean,salsa,avocado,queso fresco|bread|c|h|egg,dairy'],
+      ['french-toast', 'Brioche French toast', 'Thick brioche soaked in custard, griddled, with berries and maple syrup.', 'main|egg|fried|0 3 3 0 0|soft,crispy|brioche,egg,milk,berry,maple syrup|bread|c|h|egg,gluten,dairy'],
+      ['chicken-waffles', 'Chicken and waffles', 'Buttermilk fried chicken on a waffle with hot honey.', 'main|chicken|fried|1 3 2 0 2|crispy|chicken,waffle,buttermilk,honey,chili|bread|c|h|gluten,dairy,egg'],
+      ['salmon-bagel', 'Smoked salmon bagel', 'Bagel with cream cheese, smoked salmon, capers and red onion.', 'main|fish|fresh|0 2 0 1 2|chewy,creamy|bagel,smoked salmon,cream cheese,caper,red onion|bread|c|c|fish,gluten,dairy,sesame'],
+      ['omelette', 'Garden omelette', 'Three-egg omelette with spinach, mushroom, tomato and goat cheese, with toast.', 'main|egg|fried|0 2 0 0 2|soft|egg,spinach,mushroom,tomato,goat cheese,toast|bread|c|h|egg,dairy,gluten'],
+      ['breakfast-burrito', 'Breakfast burrito', 'Flour tortilla with scrambled eggs, chorizo, potato, cheese and salsa.', 'main|pork|fried|1 3 0 1 2|soft|flour tortilla,egg,chorizo,potato,cheddar,salsa|bread|c|h|gluten,egg,dairy'],
+      ['full-breakfast', 'Full breakfast', 'Eggs, bacon, sausage, beans, mushrooms, tomato and toast.', 'main|mixed|fried|0 3 1 0 3|crispy,soft|egg,bacon,sausage,baked bean,mushroom,tomato,toast|bread|c|h|egg,gluten'],
+      ['acai', 'Acai bowl', 'Frozen acai blended with banana, topped with granola, fruit and coconut.', 'main|none|fresh|0 1 3 1 0|creamy,crunchy|acai,banana,granola,strawberry,coconut|none|c|c|gluten|vegan'],
+      ['grain-bowl', 'Breakfast grain bowl', 'Quinoa, kale and roasted sweet potato with a soft egg and tahini.', 'main|egg|roasted|0 1 0 1 1|soft|quinoa,kale,sweet potato,egg,tahini|none|c|h|egg,sesame'],
+      ['hash-browns', 'Hash browns', 'Crispy shredded potato cakes.', 'side|none|fried|0 2 0 0 1|crispy|potato,butter|potato|c|h|dairy'],
+      ['cinnamon-roll', 'Cinnamon roll', 'Soft swirled cinnamon bun with cream cheese icing.', 'dessert|none|baked|0 3 3 0 0|soft,sticky|flour,cinnamon,butter,cream cheese,sugar,egg|none|c|h|gluten,dairy,egg'],
+    ],
+  },
 ];
 
-function parseDish(menu, [id, name, desc, spec]) {
+function parseDish(menu, [id, name, desc, spec], i) {
   const [course, protein, method, levels, textures, ingredients, carb, fam, temp, allergens, diet] = spec.split('|').map((s) => s.trim());
   const [heat, richness, sweetness, sourness, umami] = levels.split(/\s+/).map(Number);
   const list = (s) => (s ? s.split(',').map((x) => x.trim()).filter(Boolean) : []);
@@ -258,12 +550,44 @@ function parseDish(menu, [id, name, desc, spec]) {
     familiarity: fam === 'a' ? 'adventurous' : 'common', temperature: temp === 'c' ? 'cold' : 'hot',
     allergens: list(allergens), diet: diet || undefined,
   }, menu.cuisine);
-  return { ...tags, desc };
+  const given = menu.prices ? Number(menu.prices.split(/\s+/)[i]) : NaN;
+  return { ...tags, desc, price: Number.isFinite(given) ? given : typicalPrice(tags, menu.tier, i) };
 }
 
-/** @type {{ id, cuisine, title, place, dishes: object[] }[]} */
-export const MENUS = MENUS_RAW.map((m) => ({ ...m, dishes: m.dishes.map((d) => parseDish(m, d)) }));
+// A plausible price for menus written before prices were added: by course, protein and price level.
+const COURSE_PRICE = { starter: 8, soup: 7, salad: 9, main: 15, side: 5, dessert: 7, drink: 4 };
+const PROTEIN_EXTRA = { shellfish: 4, beef: 3, lamb: 4, duck: 5, fish: 3, mixed: 2 };
+const TIER_SCALE = { $: 0.8, $$: 1, $$$: 1.45, $$$$: 2 };
+function typicalPrice(d, tier = '$$', i = 0) {
+  const base = (COURSE_PRICE[d.course] ?? 12) + (d.course === 'main' || d.course === 'starter' ? PROTEIN_EXTRA[d.protein] ?? 0 : 0) + (d.method === 'raw' ? 2 : 0);
+  return Math.max(3, Math.round(base * (TIER_SCALE[tier] ?? 1)) + ((i % 3) - 1));
+}
+
+/** @type {{ id, cuisine, title, place, tier, dishes: object[] }[]} */
+export const MENUS = MENUS_RAW.map(({ prices, ...m }) => ({ ...m, dishes: m.dishes.map((d, i) => parseDish({ ...m, prices }, d, i)) }));
 export const menuById = (id) => MENUS.find((m) => m.id === id) ?? null;
+
+/**
+ * The order menus are offered in. Early menus cover the most ground: different cuisines, proteins,
+ * starches, cooking methods and heat levels, so the first few rounds tell the learner the most.
+ * Worked out by tools/menu-order.mjs (greedy coverage of dish features), then fixed here.
+ */
+export const MENU_ORDER = ['chinese', 'peruvian', 'french-bistro', 'vietnamese', 'plant-cafe', 'thai', 'indian', 'italian', 'japanese', 'brunch', 'mexican', 'middle-eastern', 'seafood-house', 'dim-sum', 'greek', 'tapas', 'korean', 'steakhouse', 'ramen-bar', 'diner', 'caribbean', 'ethiopian', 'turkish', 'bbq', 'south-indian', 'pizzeria'];
+
+/**
+ * The menus in the order this person gets them: MENU_ORDER, but menus where little is left once
+ * their allergies and diet are applied (fewer than 6 dishes, or fewer than 2 mains) go to the end,
+ * because a menu they can barely eat from teaches the learner little.
+ */
+export function menuPlan(intake = {}) {
+  const ok = [], thin = [];
+  for (const id of MENU_ORDER) {
+    const m = menuById(id);
+    const left = m.dishes.filter((d) => allowed(d, intake));
+    (left.length >= 6 && left.filter((d) => d.course === 'main').length >= 2 ? ok : thin).push(id);
+  }
+  return [...ok, ...thin];
+}
 
 /** Course names for grouping a menu into sections. */
 export const COURSE_TITLES = { starter: 'Starters', soup: 'Soups', salad: 'Salads', main: 'Mains', side: 'Sides', dessert: 'Desserts', drink: 'Drinks' };

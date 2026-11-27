@@ -1,4 +1,4 @@
-// Writes tools/sample-sessions.json: 36 synthetic people (6 personas x 6), in the same shape as a
+// Writes tools/sample-sessions.json: 60 synthetic people (10 personas x 6), in the same shape as a
 // real export, so tools/evaluate.mjs runs before anyone has shared real data.
 //   node tools/make-sample-sessions.mjs
 import { writeFileSync } from 'node:fs';
@@ -13,8 +13,8 @@ for (const name of Object.keys(PERSONAS)) for (let i = 0; i < 6; i++, seed++) {
   const person = makePerson(name, seed);
   const r = rng(seed);
   // people stop at different points, like real volunteers
-  const stopAfter = 4 + Math.floor(r() * 9);
-  const rounds = playSession(person, seed, (done, menu) => topK(train(person.intake, expand(done)), menuById(menu.id).dishes, person.intake, 3)).slice(0, stopAfter)
+  const stopAfter = 3 + Math.floor(r() * 23);
+  const rounds = playSession(person, seed, (done, menu) => topK(train(person.intake, expand(done)), menuById(menu.id).dishes, person.intake, 3), { max: stopAfter })
     .map((x, j) => ({ ...x, at: Date.UTC(2026, 10, 20) + seed * 1000 + j }));
   sessions.push({ id: `sample-${seed}`, persona: name, intake: person.intake, rounds });
 }

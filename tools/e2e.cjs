@@ -1,6 +1,6 @@
 // End-to-end check in a real browser (Chromium via a global Playwright install; nothing to npm install).
 //
-//   NODE_PATH=$(npm root -g) node tools/e2e.cjs              signed-out app with the null config
+//   NODE_PATH=$(npm root -g) node tools/e2e.cjs              the signed-out app (Firebase blocked offline)
 //   NODE_PATH=$(npm root -g) node tools/e2e.cjs --emulator   also the signed-in parts, against the local
 //                                                            Firebase emulators started from the backend repo:
 //     FAKE_AI=1 npx firebase emulators:start --project demo-apps --only auth,firestore,functions
@@ -32,7 +32,7 @@ function check(name, ok, extra = '') {
 
 async function newPage(browser, viewport, { proxy = false } = {}) {
   const ctx = await browser.newContext({
-    viewport, deviceScaleFactor: 2, isMobile: viewport.width < 500, hasTouch: viewport.width < 500,
+    viewport, deviceScaleFactor: 1, isMobile: viewport.width < 500, hasTouch: viewport.width < 500,
     ...(proxy && process.env.HTTPS_PROXY ? { proxy: { server: process.env.HTTPS_PROXY, bypass: 'localhost,127.0.0.1' }, ignoreHTTPSErrors: true } : {}),
   });
   const page = await ctx.newPage();
@@ -45,74 +45,120 @@ async function newPage(browser, viewport, { proxy = false } = {}) {
 const noSideScroll = (page) => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1);
 const shot = async (page, name) => { if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: path.join(SHOTS, `${name}.png`), fullPage: false }); } };
 
-async function intake(page, { allergy = 'peanut', diet = null } = {}) {
-  await page.waitForSelector('form#intake');
-  if (diet) await page.locator(`input[name="diet"][value="${diet}"]`).check();
-  if (allergy) await page.locator(`input[name="allergies"][value="${allergy}"]`).check();
-  await page.locator('input[name="never"][value="olive"]').check();
-  await page.locator('input[name="spice"][value="2"]').check();
-  await page.click('form#intake button[type="submit"]');
+async function chips(page, field, text, { enter = true } = {}) {
+  await page.fill(`#in-${field}`, text);
+  if (enter) await page.press(`#in-${field}`, 'Enter');
+  return page.locator(`#box-${field} .ce-list`).innerText();
 }
 
-async function playRound(page, k = 2) {
-  await page.waitForSelector('.dish .tap');
+async function intake(page, { allergy = 'peanut allergy', diet = null } = {}) {
+  await page.waitForSelector('#in-likes');
+  const liked = await chips(page, 'likes', 'broocli califlur tometo, xyzzy');
+  check('likes: "broocli califlur tometo" becomes broccoli, cauliflower, tomato', /broccoli[\s\S]*cauliflower[\s\S]*tomato/.test(liked) && /from “broocli”/.test(liked), liked);
+  check('likes: an unknown word stays as typed, marked not recognised', /xyzzy\s+not recognised/.test(liked), liked);
+  await page.click('#box-likes .ce-main >> nth=0');
+  check('tapping a chip opens "did you mean"', await page.locator('.fix').count() === 1);
+  await page.click('[data-action="chip-close"]');
+  await page.click('#wizard button[type="submit"]');
+  await chips(page, 'dislikes', 'olives', { enter: false }); // typed but not entered: Next adds it
+  await page.click('#wizard button[type="submit"]');
+  const rules = await chips(page, 'restrictions', [allergy, diet].filter(Boolean).join(', ') || 'none');
+  if (allergy) check('allergy recognised', /peanuts/i.test(rules), rules);
+  await page.click('#wizard button[type="submit"]');
+  await page.locator('input[name="spice"][value="2"]').check({ force: true });
+  await page.click('#wizard button[type="submit"]');
+  await chips(page, 'cuisineChips', 'thia');
+  await page.click('#wizard button[type="submit"]');
+}
+
+async function playRound(page, k = 3) {
+  await page.waitForSelector('.guesscard');
+  const guess = await page.locator('.guesscard li').count();
   const taps = page.locator('.dish .tap');
-  for (let i = 0; i < k; i++) await taps.nth(i * 3).click();
-  await page.locator('.dish .never').last().click();
-  await page.click('[data-action="reveal"]');
+  for (let i = 0; i < k; i++) await taps.nth(i * 2).click();
+  await page.click('[data-action="lock"]');
   await page.waitForSelector('.verdict');
-  return page.locator('main').innerText();
+  return { guess, text: await page.locator('main').innerText() };
 }
 
 async function signedOut(browser) {
-  console.log('Signed out, null config, phone 390x844');
+  console.log('Signed out, phone 390x844');
   const { ctx, page, errors } = await newPage(browser, { width: 390, height: 844 });
   await page.goto(`${BASE}?train=1`);
   await intake(page);
-  check('share link ?train=1 opens the intake, then round 1', await page.locator('text=Round 1 of 12').count() === 1);
+  check('share link ?train=1 opens the intake, then menu 1 of 10', await page.locator('text=Menu 1 of 10').count() === 1);
   await shot(page, 'phone-round');
   let text = '';
   for (let r = 1; r <= 4; r++) {
-    text = await playRound(page, r % 3 + 1);
-    check(`round ${r}: guess revealed with a hit or miss`, /Got it|Missed this one/.test(text));
-    check(`round ${r}: running hit rate shown`, new RegExp(`of ${r}\\s+rounds`).test(text), text.slice(0, 200));
+    const res = await playRound(page, r === 2 ? 2 : 3);
+    text = res.text;
+    check(`menu ${r}: its top 3 shown before picking`, res.guess === 3);
+    check(`menu ${r}: score "it guessed n of your 3"`, /It guessed (none|\d|all \d) of your \d/.test(text) || /It guessed all/.test(text), text.slice(0, 120));
+    check(`menu ${r}: running score shown`, new RegExp(`of your picks guessed over ${r} menus?`).test(text), text.slice(0, 400));
     if (r === 4) await shot(page, 'phone-reveal');
     await page.click('[data-action="next"]');
   }
   check('learned line in plain words', /You keep|Your picks|Noted/.test(text));
   check('no horizontal scroll at 390', await noSideScroll(page));
+  // stop early
+  await page.waitForSelector('.guesscard');
+  await page.click('.roundhead [data-action="stop"]');
+  await page.waitForSelector('h1');
+  check('Finish: stops early and keeps the 4 menus', /palette is ready/i.test(await page.locator('main').innerText()) && /Over 4 menus/.test(await page.locator('main').innerText()));
   await page.reload();
   await page.goto(`${BASE}#/you`);
   await page.waitForSelector('.stat');
   const you = await page.locator('main').innerText();
-  check('after reload the profile is kept (4 rounds, rules)', /Training rounds\s+4/.test(you) && /allergic to peanut/.test(you), you.slice(0, 300));
+  check('after reload the profile is kept (4 menus, typed foods, allergy)', /Sample menus\s+4/.test(you) && /broccoli/.test(you) && /peanuts/i.test(you), you.slice(0, 400));
   const keys = await page.evaluate(() => Object.keys(localStorage));
   check('browser storage keys start with mypalette.', keys.length > 0 && keys.every((k) => k.startsWith('mypalette.')), keys.join(','));
+  check('stored state is version 2 under the same key', await page.evaluate(() => JSON.parse(localStorage.getItem('mypalette.state.v1')).v === 2));
+  await page.goto(`${BASE}#/train`);
+  await page.waitForSelector('[data-action="train-more"]');
+  await page.click('[data-action="train-more"]');
+  await page.waitForSelector('.guesscard');
+  check('can come back for more menus', await page.locator('.guesscard').count() === 1);
+  await page.goto(`${BASE}#/intake`);
+  await page.waitForSelector('#in-likes');
+  check('edit page shows the saved chips', /broccoli/.test(await page.locator('#box-likes').innerText()));
   await page.goto(`${BASE}#/menu`);
   await page.waitForSelector('h1');
-  check('menu reading explains sign-in is not set up yet', await page.locator('text=Not switched on yet').count() === 1);
+  check('menu reading page loads', /Read a menu/.test(await page.locator('main').innerText()));
   await page.goto(`${BASE}#/`);
   await page.waitForSelector('.hero');
-  check('home shows the hit rate', /Top-3 hit rate/.test(await page.locator('main').innerText()));
+  check('home shows the share of picks guessed', /Picks it guessed/.test(await page.locator('main').innerText()));
   await page.setViewportSize({ width: 360, height: 740 });
   for (const h of ['#/', '#/train', '#/you', '#/intake', '#/menu']) { await page.goto(BASE + h); await page.waitForTimeout(150); check(`no horizontal scroll at 360: ${h}`, await noSideScroll(page)); }
-  check('no console errors (phone)', errors.length === 0, errors.join(' | '));
+  const real = errors.filter((e) => !/Failed to load resource|gstatic|firebase/i.test(e));
+  check('no console errors (phone)', real.length === 0, real.join(' | '));
   await page.goto(`${BASE}nope.html`);
   check('404 page', /not found/i.test(await page.locator('body').innerText()));
   await ctx.close();
+
+  console.log('Older saved data (v1) still loads');
+  const o = await newPage(browser, { width: 390, height: 844 });
+  await o.page.goto(`${BASE}robots.txt`);
+  await o.page.evaluate(() => localStorage.setItem('mypalette.state.v1', JSON.stringify({ v: 1, intake: { diet: ['vegetarian'], allergies: ['peanut'], never: ['olive'], spice: 1, adventure: 1, cuisines: [], at: 1 }, rounds: [{ id: 'r1', menu: 'thai', predicted: ['green-curry'], picked: ['panang-tofu'], never: [], at: 1, hit: false }], pending: null, feedback: [], meals: [], consent: false, sessionId: 'abcdefghijklmnopqrstuvwx', order: null, syncOffFor: null, updated: 1 })));
+  await o.page.goto(`${BASE}#/train`);
+  await o.page.waitForSelector('.guesscard');
+  check('v1 tester: no crash, continues at menu 2 with their rules', /Menu 2 of 10/.test(await o.page.locator('main').innerText()) && await o.page.locator('.dish.blocked').count() > 0);
+  const oerr = o.errors.filter((e) => !/Failed to load resource|gstatic|firebase/i.test(e));
+  check('no console errors (v1 data)', oerr.length === 0, oerr.join(' | '));
+  await o.ctx.close();
 
   console.log('Signed out, desktop 1280x800');
   const d = await newPage(browser, { width: 1280, height: 800 });
   await d.page.goto(`${BASE}?train=1`);
   await intake(d.page, { allergy: null, diet: 'vegetarian' });
   const t = await playRound(d.page, 1);
-  check('desktop: a round works', /hit rate so far/i.test(t));
+  check('desktop: a menu works', /Running score/i.test(t.text));
   await d.page.click('[data-action="next"]');
   await d.page.waitForSelector('.dish');
   check('desktop: vegetarian rule greys out meat dishes', await d.page.locator('.dish.blocked').count() > 0);
   await d.page.keyboard.press('Tab');
   check('desktop: keyboard focus is visible', await d.page.evaluate(() => { const el = document.activeElement; return !!el && getComputedStyle(el).outlineStyle !== 'none'; }));
-  check('no console errors (desktop)', d.errors.length === 0, d.errors.join(' | '));
+  const derr = d.errors.filter((e) => !/Failed to load resource|gstatic|firebase/i.test(e));
+  check('no console errors (desktop)', derr.length === 0, derr.join(' | '));
   for (const p of ['privacy.html', 'terms.html']) {
     await d.page.goto(BASE + p);
     const body = await d.page.locator('body').innerText();

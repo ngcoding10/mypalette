@@ -2,11 +2,11 @@
 // rounds before it only, then compare with what the person really picked.
 // Used by tools/evaluate.mjs (real, exported sessions) and test/learner.test.mjs (synthetic people).
 import { train, topK } from '../js/learner.js';
-import { allowed } from '../js/schema.js';
+import { allowed } from '../js/rules.js';
 import { menuById } from '../js/menus.js';
 
-/** Turn stored rounds ({ menu, picked, never }) into learner input ({ options, picked, never }). */
-export const expand = (rounds) => rounds.map((r) => ({ options: menuById(r.menu)?.dishes ?? [], picked: r.picked, never: r.never ?? [] })).filter((r) => r.options.length);
+/** Turn stored rounds ({ menu, predicted, picked, never }) into learner input. */
+export const expand = (rounds) => rounds.map((r) => ({ options: menuById(r.menu)?.dishes ?? [], predicted: r.predicted ?? [], picked: r.picked, never: r.never ?? [] })).filter((r) => r.options.length);
 
 const choose = (n, k) => { if (k < 0 || k > n) return 0; let c = 1; for (let i = 0; i < k; i++) c = (c * (n - i)) / (i + 1); return c; };
 /** Chance that k random dishes out of n include at least one of the `hits` picked. */
