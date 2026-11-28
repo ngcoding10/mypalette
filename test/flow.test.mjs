@@ -147,7 +147,7 @@ test('older saved data (v1) loads without crashing and keeps the person\'s rules
   }));
   const S = await freshStore();
   const s = S.get();
-  assert.equal(s.v, 2);
+  assert.equal(s.v, 3);
   assert.equal(s.intake.name, 'Sam');
   const ks = s.intake.restrictions.map((c) => c.k);
   assert.ok(ks.includes('vegetarian') && ks.includes('peanuts') && ks.includes('food:mushroom'), ks.join());
@@ -188,4 +188,31 @@ test('what is synced and shared keeps the shapes the backend accepts', async () 
   assert.ok(merged);
   assert.equal(S.get().intake.v, 2);
   assert.deepEqual(S.get().intake.diet, ['vegan']);
+});
+
+test('v2 data → v3: menus read from photos (and their feedback) get guessed ingredient roles; nothing else changes', async () => {
+  mem.clear();
+  const dish = { id: 'd0', name: 'Grilled chicken', cuisine: 'thai', course: 'main', protein: 'chicken', diet: 'meat', method: 'grilled', heat: 1, richness: 1, sweetness: 1, sourness: 1, umami: 1, texture: [], ingredients: ['chicken', 'cilantro', 'rice'], carb: 'rice', familiarity: 'common', temperature: 'hot', allergens: [], whatItIs: 'Grilled chicken topped with cilantro, served with rice.' };
+  const v2 = {
+    v: 2, intake: { v: 2, likes: [], dislikes: [{ t: 'cilantro', k: 'cilantro', s: 'ok' }], restrictions: [], cuisineChips: [], spice: 1, adventure: 1, at: 1 },
+    rounds: [{ id: 'r1', menu: 'thai', predicted: ['green-curry', 'pad-thai', 'massaman'], picked: ['panang-tofu'], never: [], at: 1, hit: false }],
+    pending: null, skipped: [], target: 10, finished: false, consent: false, sessionId: 'abcdefghijklmnopqrstuvwx', syncOffFor: null, updated: 1,
+    meals: [{ id: 'm1', at: 1, title: 'Thai menu', cuisine: 'Thai', readable: 'clear', problem: '', dishes: [dish], claude: [], ordered: ['d0'], ratings: {} }],
+    feedback: [{ id: 'm1', at: 1, options: [{ ...dish, whatItIs: undefined }, { ...dish, id: 'd1', name: 'Plain rice', protein: 'none', ingredients: ['rice'], whatItIs: undefined }], liked: ['d0'], disliked: [] }],
+  };
+  mem.set(KEY, JSON.stringify(v2));
+  const S = await freshStore();
+  const s = S.get();
+  assert.equal(s.v, 3);
+  assert.deepEqual(s.meals[0].dishes[0].roles, { chicken: 'core', cilantro: 'garnish', rice: 'side' });
+  assert.equal(s.meals[0].dishes[0].rolesGuessed, true);
+  assert.deepEqual(s.feedback[0].options[0].roles, { chicken: 'core', cilantro: 'garnish', rice: 'side' }, 'feedback takes the roles from its meal');
+  assert.equal(s.rounds.length, 1);
+  assert.deepEqual(s.feedback[0].options[1].roles, { rice: 'core' }, 'a feedback dish without a meal copy gets a guess from its own words');
+  assert.equal(S.getModel().n, 2, 'the round and the meal both teach it');
+  // stored compact dishes keep their roles, and the saved copy is v3
+  assert.deepEqual(S.compactDish(s.meals[0].dishes[0]).roles, { chicken: 'core', cilantro: 'garnish', rice: 'side' });
+  S.update(() => {});
+  assert.equal(JSON.parse(mem.get(KEY)).v, 3);
+  assert.equal(JSON.parse(S.cloudProfile().history).v, 3);
 });

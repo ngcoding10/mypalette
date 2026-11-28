@@ -1,10 +1,11 @@
 // MyPalette page logic: intake, training rounds, reading a menu, profile and account.
 // Plain ES modules, no build step. Views are small HTML strings; clicks are handled by delegation.
-import { COURSE_TITLES, menuById } from './menus.js';
+import { menuById } from './menus.js';
 import { LABELS } from './schema.js';
 import { conflicts, cautions } from './rules.js';
 import { chipLabel, entryOf, parseList, suggest } from './foods.js';
-import { explain, learnedLine, profileForServer, rank, summary } from './learner.js';
+import { dislikeNotes, learnedLine, profileForServer, rank, skippedWithReasons, summary, whyThis } from './learner.js';
+import { entryHtml, kickerOf, priceText, sectionsOf, sectionsOfReading, sheetHtml, styleForCuisine } from './menu-view.js';
 import { createFuzzyIndex, foldText } from './fuzzy.js';
 import * as S from './store.js';
 import { cloud, emulator, initCloud, signInGoogle, signInEmail, signUpEmail, resetPassword, signOut, loadProfile, saveProfile, saveMeal, updateMeal, readMenu, shareSession, deleteCloudData } from './cloud.js';
@@ -106,7 +107,7 @@ function viewHome() {
 // ───────── chip inputs: likes, dislikes, allergies and diets, cuisines ─────────
 const FIELDS = {
   likes: { kind: 'food', label: 'Foods you like', hint: 'Type as many as you like, separated by commas, then press Enter. Spelling does not have to be right.', placeholder: 'e.g. broccoli, tomato, pad thai, salmon' },
-  dislikes: { kind: 'food', label: 'Foods you don’t like', hint: 'Same idea. These count strongly against a dish, but are not a hard rule.', placeholder: 'e.g. mushrooms, olives, cilantro' },
+  dislikes: { kind: 'food', label: 'Foods you don’t like', hint: 'Same idea. These count against a dish, but never rule it out: a dish where it is only a garnish or a side can still be a top pick, with a note that you could ask to leave it out. Allergies go in the next box.', placeholder: 'e.g. mushrooms, olives, cilantro' },
   restrictions: { kind: 'restriction', label: 'Allergies and dietary restrictions', hint: 'Strict: a dish that likely contains an allergy is never suggested, and unclear dishes get a warning. Diets work the same way.', placeholder: 'e.g. peanut allergy, celiac, vegetarian, halal' },
   cuisineChips: { kind: 'cuisine', label: 'Cuisines you love', hint: 'Optional.', placeholder: 'e.g. thai, mexican, italian' },
 };
@@ -269,52 +270,62 @@ function viewTrain() {
   const menu = menuById(pending.menu);
   const n = s.rounds.length + 1, of = s.target;
   const byId = (id) => menu.dishes.find((d) => d.id === id);
-  const groups = {};
-  for (const d of menu.dishes) (groups[d.course] ??= []).push(d);
   const st = S.stats();
+  const model = S.getModel(), intake = s.intake;
   afterRender = () => { renderBar(); document.body.classList.add('has-bar'); };
+  const head = { name: menu.name, tagline: menu.tagline, kicker: kickerOf(menu), style: menu.style };
   return `
   <div class="roundhead"><span class="muted small">Menu ${n} of ${of}</span><button class="btn quiet small-btn" type="button" data-action="stop">Finish</button></div>
   <div class="progressbar" aria-hidden="true"><i style="width:${Math.round(((n - 1) / of) * 100)}%"></i></div>
-  <h1 class="menutitle">${esc(menu.title)} <span class="tier" aria-label="price level ${menu.tier.length} of 4">${esc(menu.tier)}</span></h1>
-  <p class="muted" style="margin-top:-4px">${esc(menu.place)}.</p>
   ${st.rounds ? `<p class="scoreline small">So far it has guessed <b>${st.got} of your ${st.of}</b> picks.${scoreDots(st)}</p>` : ''}
   <section class="guesscard" aria-labelledby="g-h">
-    <h2 id="g-h" class="small-h">Its top 3 for you</h2>
-    <ol class="guess">${pending.predicted.map((id, k) => `<li><span class="n">${k + 1}</span><span class="grow">${esc(byId(id)?.name)}</span>${byId(id)?.price ? `<span class="price small">${esc(byId(id).price)}</span>` : ''}</li>`).join('') || '<li class="muted">Nothing here fits your rules.</li>'}</ol>
-    ${pending.predicted.length ? `<p class="small muted" style="margin:8px 0 0">${esc(guessWhy(byId(pending.predicted[0])))}</p>` : ''}
+    <h2 id="g-h" class="small-h">Our top 3 for you</h2>
+    <ol class="guess">${pending.predicted.map((id, k) => guessItem(byId(id), k, model, intake)).join('') || '<li class="muted">Nothing here fits your rules.</li>'}</ol>
   </section>
-  <h2 class="pickhead">Now pick your own top 3</h2>
-  <p class="muted small" style="margin-top:-6px">What would you order here? It learns from where you and it differ.</p>
-  ${Object.keys(COURSE_TITLES).filter((c) => groups[c]).map((c) => `<h3 class="course">${COURSE_TITLES[c]}</h3><div class="dishes">${groups[c].map((d) => dishRow(d, pending)).join('')}</div>`).join('')}
+  <h2 class="pickhead" id="pick-h">Now pick your own top 3</h2>
+  <p class="muted small" style="margin-top:-6px">Tap the dishes you would order here. It learns from where you and it differ.</p>
+  ${sheetHtml(head, sectionsOf(menu), (d) => trainEntry(d, pending, model, intake), { id: 'm' })}
+  ${skippedBlock(model, menu.dishes, intake, pending.predicted)}
   <p class="muted small center" style="margin-top:18px">Nothing here for you? <button class="btn quiet small-btn" type="button" data-action="skip-menu">Skip this menu</button></p>
   <div class="bar" id="bar"></div>`;
 }
 
-function guessWhy(d) {
+const capFirst = (t) => (t ? t.charAt(0).toUpperCase() + t.slice(1) : t);
+/** "Why this" in one line, from the learner's strongest reasons (or the menu reader's, for a photo). */
+function whyLine(model, d, intake, fallback = '') {
+  const why = whyThis(model, d, intake, 3);
+  const text = why.length ? `${capFirst(why.join('; '))}.` : fallback || 'A good all-round match for your answers.';
+  return `<p class="why"><b>Why this:</b> ${esc(text)}</p>`;
+}
+const noteLines = (notes) => notes.map((x) => `<p class="enote ${x.removable ? 'n-leave' : 'n-firm'}">${esc(x.text)}</p>`).join('');
+
+function guessItem(d, k, model, intake) {
   if (!d) return '';
-  const why = explain(S.getModel(), d, 2);
-  return why.length ? `Its first pick fits ${why.join(' and ')}.` : 'Its first pick is a good all-round match for your answers.';
+  return `<li><span class="n" aria-hidden="true">${k + 1}</span><div class="grow"><div class="gline"><span class="sr">Our pick ${k + 1}: </span><b class="gname">${esc(d.name)}</b>${d.price ? `<span class="price small">${esc(priceText(d.price))}</span>` : ''}</div>
+    ${whyLine(model, d, intake)}${noteLines(dislikeNotes(model, d))}</div></li>`;
+}
+
+function trainEntry(d, pending, model, intake) {
+  const blocked = conflicts(d, intake);
+  const warn = blocked.length ? [] : cautions(d, intake);
+  const notes = blocked.length ? [] : dislikeNotes(model, d).map((x) => ({ cls: x.removable ? 'n-leave' : 'n-firm', text: x.text }));
+  return entryHtml(d, {
+    mode: 'pick', picked: pending.picked.indexOf(d.id), ours: pending.predicted.indexOf(d.id), blocked,
+    notes: [...notes, ...warn.slice(0, 1).map((w) => ({ cls: 'n-warn', text: w.text }))],
+  });
+}
+
+/** "Show dishes we skipped and why": a toggle under the menu. */
+function skippedBlock(model, dishes, intake, topIds) {
+  const list = skippedWithReasons(model, dishes, intake, topIds);
+  if (!list.length) return '';
+  return `<details class="skipped" ${ui.showSkipped ? 'open' : ''} data-action="skipped-toggle"><summary>Show dishes we skipped and why <span class="muted">(${list.length})</span></summary>
+    <ul class="skiplist">${list.map((x) => `<li class="${x.kind}"><b>${esc(x.dish.name)}</b><span>${esc(x.text)}</span></li>`).join('')}</ul></details>`;
 }
 
 function scoreDots(st) {
   const last = st.series.slice(-12);
   return ` <span class="dotsrow" aria-label="Per menu: ${last.map((x) => `${x.got} of ${x.of}`).join(', ')}">${last.map((x) => `<i class="d${Math.min(3, x.got)}" title="${x.got} of ${x.of}"></i>`).join('')}</span>`;
-}
-
-function dishRow(d, pending) {
-  const intake = S.get().intake ?? {};
-  const blocked = conflicts(d, intake);
-  const warn = cautions(d, intake);
-  const on = pending.picked.includes(d.id);
-  const rankOf = pending.predicted.indexOf(d.id);
-  const meta = `<div class="meta">${heatBadge(d.heat)}${d.price ? `<span class="price">${esc(d.price)}</span>` : ''}${rankOf >= 0 ? `<span class="itspick">its #${rankOf + 1}</span>` : ''}</div>
-    ${blocked.length ? `<div class="flag small">Not for you: ${esc(blocked.map((b) => b.text).join(', '))}</div>` : warn.length ? `<div class="caution small">${esc(warn[0].text)}</div>` : ''}`;
-  if (blocked.length) return `<div class="dish blocked" data-dish="${d.id}"><div><div class="name">${esc(d.name)}</div><div class="desc">${esc(d.desc)}</div>${meta}</div></div>`;
-  return `<div class="dish ${on ? 'on' : ''}" data-dish="${d.id}">
-    <button class="tap" type="button" data-action="pick" data-id="${d.id}" aria-pressed="${on}"><div class="name">${esc(d.name)}</div><div class="desc">${esc(d.desc)}</div>${meta}</button>
-    <div class="side"><span class="tick" aria-hidden="true">${on ? pending.picked.indexOf(d.id) + 1 : ''}</span></div>
-  </div>`;
 }
 
 function renderBar() {
@@ -328,11 +339,12 @@ function renderBar() {
 function onPick(id) {
   if (!S.togglePick(id)) { toast('That is 3. Tap one of your picks to swap it out.'); return; }
   const q = S.get().pending;
-  for (const row of app.querySelectorAll('.dish[data-dish]')) {
-    const did = row.dataset.dish, on = q.picked.includes(did);
+  for (const row of app.querySelectorAll('.entry[data-dish]')) {
+    const did = row.dataset.dish, k = q.picked.indexOf(did), on = k >= 0;
     row.classList.toggle('on', on);
-    row.querySelector('.tap')?.setAttribute('aria-pressed', String(on));
-    const t = row.querySelector('.tick'); if (t) t.textContent = on ? q.picked.indexOf(did) + 1 : '';
+    row.querySelector('.entry-tap')?.setAttribute('aria-pressed', String(on));
+    const c = row.querySelector('.check'); if (c) c.textContent = on ? k + 1 : '';
+    const y = row.querySelector('.yours'); if (y) y.textContent = on ? `Your pick #${k + 1}` : '';
   }
   renderBar();
 }
@@ -517,7 +529,7 @@ function topThree(meal) {
     const unsure = warn.some((w) => w.kind === 'allergy') ? 0.6 : warn.length ? 0.2 : 0;
     return { ...r, warn, final: (r.score - mean) / sd + (k >= 0 ? trust * bonus[k] : 0) - unsure, reason: k >= 0 ? meal.claude[k].reason : '' };
   }).sort((a, b) => b.final - a.final);
-  return scored.slice(0, 3).map((r) => ({ ...r, why: explain(model, r.dish, 3) }));
+  return scored.slice(0, 3);
 }
 
 function viewMeal(id) {
@@ -527,20 +539,24 @@ function viewMeal(id) {
   const intake = s.intake ?? {};
   const top = topThree(meal);
   const hasAllergies = (intake.allergies ?? []).length > 0 || (intake.restrictions ?? []).length > 0;
-  const name = (d) => `${esc(d.name)}${d.englishName && d.englishName.toLowerCase() !== d.name.toLowerCase() ? ` <span class="alt">· ${esc(d.englishName)}</span>` : ''}`;
-  const topHtml = top.length ? `<div class="top3">${top.map((t) => `<article class="card pick">
-      <div class="row"><div class="name grow">${name(t.dish)}</div>${t.dish.price ? `<span class="price">${esc(t.dish.price)}</span>` : ''}</div>
-      <p class="muted" style="margin:4px 0 0">${esc(t.dish.whatItIs)}</p>
-      <p class="why"><b>Why you:</b> ${esc(t.reason || '')}${t.why.length ? `${t.reason ? ' ' : ''}Fits what you pick: ${esc(t.why.join(', '))}.` : ''}${!t.reason && !t.why.length ? 'A good all-round match for your answers.' : ''}</p>
-      <div class="meta row small muted">${heatBadge(t.dish.heat, t.dish.heatNote)}</div>
-      ${t.warn.length ? `<p class="caution small">${esc(t.warn.map((w) => w.text).join(' '))}</p>` : ''}
-    </article>`).join('')}</div>` : '<div class="notice info">Nothing on this menu fits your rules. Ask the staff what they can adapt.</div>';
+  const model = S.getModel();
+  const topHtml = top.length ? `<ol class="top3" aria-label="Our top 3">${top.map((t, k) => `<li class="pickcard">
+      <span class="ours-tag">Our pick #${k + 1}</span>
+      <div class="line"><span class="dname">${esc(t.dish.name)}</span><span class="leader" aria-hidden="true"></span>${t.dish.price ? `<span class="dprice">${esc(priceText(t.dish.price))}</span>` : ''}</div>
+      ${t.dish.englishName && t.dish.englishName.toLowerCase() !== t.dish.name.toLowerCase() ? `<p class="dsub">${esc(t.dish.englishName)}</p>` : ''}
+      <p class="ddesc">${esc(t.dish.whatItIs)}</p>
+      ${whyLine(model, t.dish, intake, t.reason)}
+      ${noteLines(dislikeNotes(model, t.dish))}
+      ${t.dish.heatNote ? `<p class="small muted">${heatBadge(t.dish.heat, t.dish.heatNote)}</p>` : ''}
+      ${t.warn.length ? `<p class="enote n-warn">${esc(t.warn.map((w) => w.text).join(' '))}</p>` : ''}
+    </li>`).join('')}</ol>` : '<div class="notice info">Nothing on this menu fits your rules. Ask the staff what they can adapt.</div>';
   return `
   <div class="row"><h1 class="grow" style="font-size:30px;margin:0">Your top 3</h1><a class="btn" href="#/menu">${ICON.camera} New menu</a></div>
   <p class="muted">${esc(meal.title)} · ${meal.dishes.length} dishes read${meal.usage ? ` · ${meal.usage.used} of ${meal.usage.limit} readings used today` : ''}</p>
   ${meal.readable !== 'clear' && meal.problem ? `<div class="notice info" style="margin-bottom:12px"><strong>Partly read.</strong> ${esc(meal.problem)}</div>` : ''}
   ${hasAllergies ? `<div style="margin-bottom:12px">${safetyNote()}</div>` : ''}
   ${topHtml}
+  ${skippedBlock(model, meal.dishes, intake, top.map((t) => t.dish.id))}
   <section class="section" aria-labelledby="full">
     <div class="row"><h2 id="full" class="grow" style="margin:0">The whole menu</h2><button class="btn" type="button" data-action="order-mode" aria-pressed="${ui.orderMode}">${ui.orderMode ? 'Done' : 'What did you order?'}</button></div>
     ${ui.orderMode ? '<p class="muted small">Tap what you had, then say how it was. It learns from real meals too.</p>' : ''}
@@ -552,6 +568,7 @@ function viewMeal(id) {
 
 function mealList(meal) {
   const intake = S.get().intake ?? {};
+  const model = S.getModel();
   let dishes = meal.dishes;
   const q = ui.search.trim();
   if (q) {
@@ -566,25 +583,24 @@ function mealList(meal) {
     dishes = hits;
   }
   if (!dishes.length) return '<p class="muted">Nothing matches that.</p>';
-  const sections = [];
-  for (const d of dishes) { const k = d.section || COURSE_TITLES[d.course] || 'Dishes'; let g = sections.find((x) => x.k === k); if (!g) sections.push(g = { k, list: [] }); g.list.push(d); }
-  return sections.map((g) => `<h3 class="course">${esc(g.k)}</h3><div class="dishes">${g.list.map((d) => {
+  const top = topThree(meal).map((t) => t.dish.id);
+  const head = { name: meal.title || 'Your menu', tagline: `Read from your ${meal.problem || meal.readable !== 'clear' ? 'photo (partly)' : 'photo'} · ${meal.dishes.length} dishes`, kicker: 'As read by MyPalette', style: styleForCuisine(meal.cuisine || meal.title) };
+  return sheetHtml(head, sectionsOfReading(dishes), (d) => {
     const blocked = conflicts(d, intake);
-    const warn = cautions(d, intake);
-    const allergy = blocked.filter((b) => b.kind === 'allergy');
-    const other = blocked.filter((b) => b.kind !== 'allergy');
+    const warn = blocked.length ? [] : cautions(d, intake);
     const ordered = meal.ordered.includes(d.id);
     const rating = meal.ratings[d.id];
-    return `<div class="dish ${ordered ? 'on' : ''}" data-dish="${d.id}" style="grid-template-columns:1fr">
-      <div class="row"><div class="name grow">${esc(d.name)}${d.englishName && d.englishName.toLowerCase() !== d.name.toLowerCase() ? ` <span class="muted small">· ${esc(d.englishName)}</span>` : ''}</div>${d.price ? `<span class="price">${esc(d.price)}</span>` : ''}</div>
-      <div class="desc">${esc(d.whatItIs)}</div>
-      <div class="meta">${heatBadge(d.heat, d.heatNote)}${d.mainIngredients?.length ? `<span>${esc(d.mainIngredients.slice(0, 5).join(', '))}</span>` : ''}</div>
-      ${allergy.length ? `<div class="flag small" style="margin-top:6px">Allergy: ${esc(allergy.map((b) => b.text).join(', '))}. ${esc(d.allergenNote)}</div>` : d.allergenNote && (intake.allergies ?? []).length ? `<div class="small muted" style="margin-top:6px">${esc(d.allergenNote)}</div>` : ''}
-      ${other.length ? `<div class="small flag" style="margin-top:4px">Not for you: ${esc(other.map((b) => b.text).join(', '))}</div>` : ''}
-      ${warn.length ? `<div class="small caution" style="margin-top:4px">${esc(warn.map((w) => w.text).join(' '))}</div>` : ''}
-      ${ui.orderMode ? `<div class="rate"><button class="btn" type="button" data-action="ordered" data-id="${d.id}" aria-pressed="${ordered}">${ordered ? 'Had this' : 'I had this'}</button>${ordered ? `<button class="btn" type="button" data-action="rate" data-id="${d.id}" data-v="1" aria-pressed="${rating === true}">Loved it</button><button class="btn" type="button" data-action="rate" data-id="${d.id}" data-v="0" aria-pressed="${rating === false}">Not for me</button>` : ''}</div>` : ''}
-    </div>`;
-  }).join('')}</div>`).join('');
+    const notes = [
+      ...(blocked.some((b) => b.kind === 'allergy') && d.allergenNote ? [{ cls: 'n-muted', text: d.allergenNote }] : !blocked.length && d.allergenNote && (intake.allergies ?? []).length ? [{ cls: 'n-muted', text: d.allergenNote }] : []),
+      ...(blocked.length ? [] : dislikeNotes(model, d).map((x) => ({ cls: x.removable ? 'n-leave' : 'n-firm', text: x.text }))),
+      ...warn.map((w) => ({ cls: 'n-warn', text: w.text })),
+    ];
+    const rate = ui.orderMode ? `<div class="rate"><button class="btn" type="button" data-action="ordered" data-id="${d.id}" aria-pressed="${ordered}">${ordered ? 'Had this' : 'I had this'}</button>${ordered ? `<button class="btn" type="button" data-action="rate" data-id="${d.id}" data-v="1" aria-pressed="${rating === true}">Loved it</button><button class="btn" type="button" data-action="rate" data-id="${d.id}" data-v="0" aria-pressed="${rating === false}">Not for me</button>` : ''}</div>` : '';
+    return entryHtml(d, {
+      mode: 'view', ours: top.indexOf(d.id), picked: ordered ? 0 : -1, blocked,
+      sub: d.englishName && d.englishName.toLowerCase() !== d.name.toLowerCase() ? d.englishName : '', notes, after: rate,
+    });
+  }, { id: 'meal' });
 }
 
 function mealFeedback(meal) {
@@ -678,7 +694,9 @@ async function pushProfile() {
   finally { syncing = null; }
 }
 async function onSignedIn(user) {
-  if (!user) { setSync(cloud.enabled ? '' : ''); render(); return; }
+  // signed out (also the first answer at start-up): only pages that show the account need redrawing, and
+  // redrawing the questions would drop what someone is typing
+  if (!user) { setSync(''); if (['menu', 'you', 'meal'].includes(route)) render(); return; }
   if (!syncAllowed()) { setSync('Sync off'); render(); return; }
   setSync('Syncing…');
   try {
@@ -738,6 +756,7 @@ app.addEventListener('click', (e) => {
   else if (a === 'sync-on') { S.update((s) => { s.syncOffFor = null; }, { retrain: false, sync: false }); onSignedIn(cloud.user); }
   else if (a === 'cancel-read') { ui.readToken++; ui.reading = null; render(); }
   else if (a === 'order-mode') { ui.orderMode = !ui.orderMode; render(); }
+  else if (a === 'skipped-toggle') return;
   else if (a === 'ordered') changeOrder(currentRoute()[1], el.dataset.id, 'ordered');
   else if (a === 'rate') changeOrder(currentRoute()[1], el.dataset.id, 'rate', el.dataset.v === '1');
   else if (a === 'export') exportProfile();
@@ -769,7 +788,7 @@ app.addEventListener('change', (e) => {
   else if (el.dataset.action === 'consent') { S.update((s) => { s.consent = el.checked; }, { retrain: false, sync: false }); consentChanged(el.checked); }
   else if (el.dataset.action === 'seg') setDraft((d) => { d[el.name] = Number(el.value); });
 });
-app.addEventListener('toggle', (e) => { if (e.target.dataset?.action === 'text-toggle') ui.textOpen = e.target.open; }, true);
+app.addEventListener('toggle', (e) => { if (e.target.dataset?.action === 'text-toggle') ui.textOpen = e.target.open; if (e.target.dataset?.action === 'skipped-toggle') ui.showSkipped = e.target.open; }, true);
 app.addEventListener('input', (e) => {
   if (e.target.dataset.action === 'search') {
     ui.search = e.target.value;

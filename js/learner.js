@@ -6,27 +6,34 @@
 // (multinomial logit) fitted by gradient ascent, pulled towards a starting point built from the
 // intake answers (L2 regularisation), so a few rounds move it a little and many rounds a lot.
 // Allergies, diets and must-avoid foods are hard filters (js/rules.js), not weights.
-// Foods the person typed as liked or disliked become two personal features, "like" and "dislike"
-// (how many of their liked or disliked foods a dish has), which start strongly positive and
-// negative and are then fitted like any other weight: if someone says they dislike onion but keeps
-// picking dishes with onion, the dislike weight shrinks.
+// Foods the person typed as liked become a personal feature, "like" (how many of their liked foods a
+// dish has). Disliked foods are soft, never a filter, and count by the part they play in the dish
+// (js/roles.js): "dislike" when the dish is built around it (a large penalty), "dislikeMixed" when it is
+// cooked in and hard to take out (a medium one), "dislikePick" when it is a garnish, topping or side
+// they could ask to leave out (a small one). All start from the intake and are then fitted like any
+// other weight, never above zero: if someone keeps picking dishes with a disliked garnish, they do not
+// mind picking it out, so that penalty shrinks for them.
 // Each round also says what the learner guessed. Besides the choice model, every guessed dish the
 // person did not pick is compared with each dish they did pick (a pairwise "this, not that" term),
 // so it learns most from where its guess and the person differ.
 // No DOM, no dependencies: it also runs in Node for the tests and tools/evaluate.mjs.
 import { LABELS } from './schema.js';
 import { allowed, conflicts, rulesOf } from './rules.js';
-import { chipLabel, cuisineKeys, featureHints, matcher } from './foods.js';
+import { chipLabel, cuisineKeys, featureHints, matchDetail, tasteMatcher } from './foods.js';
+import { REMOVABLE, mostCentral, rolesAreGuess, rolesOf } from './roles.js';
 
-export const LEARNER_VERSION = 2;
+export const LEARNER_VERSION = 3;
 // Tuned on synthetic people with tools/evaluate-intake.mjs; exported so tools can try other values.
 export const TUNING = {
   lambda: 1.0,      // pull towards the intake prior; higher = slower to change its mind
   never: 0.5,       // a "would never order" counts half as much as a pick
   pair: 0.5,        // the guessed-but-not-picked vs picked comparison, per pair
   iterations: 120,
+  roles: true,      // false = the old scoring: every disliked food counts the same, whatever its role
+  lambdaDislike: 0.5, // the dislike weights move faster than the rest: tolerance is personal
 };
-export const PRIOR = { like: 0.9, dislike: -2.0, likeHint: 0.3, dislikeHint: -0.4, cuisine: 0.5 };
+export const PRIOR = { like: 0.9, dislike: -2.0, dislikeMixed: -1.1, dislikePick: -0.45, likeHint: 0.3, dislikeHint: -0.4, cuisine: 0.5 };
+const DISLIKE_KEYS = ['dislike', 'dislikeMixed', 'dislikePick'];
 
 const centred = (v) => (v - 1.5) / 1.5; // 0..3 -> -1..1
 
@@ -36,19 +43,52 @@ const prefCache = new WeakMap();
 export function prefsOf(intake = {}) {
   let p = prefCache.get(intake);
   if (!p) {
-    const tests = (chips) => (Array.isArray(chips) ? chips : []).map((c) => matcher(c, 'food'));
-    p = { like: tests(intake.likes), dislike: tests(intake.dislikes), cache: new WeakMap() };
+    const chips = (list) => (Array.isArray(list) ? list : []);
+    p = {
+      like: chips(intake.likes).map((c) => ({ label: chipLabel(c, 'food'), test: tasteMatcher(c, 'food') })),
+      dislike: chips(intake.dislikes).map((c) => ({ label: chipLabel(c, 'food'), detail: matchDetail(c, 'food') })),
+      cache: [new WeakMap(), new WeakMap()], // per scoring mode (TUNING.roles off / on)
+    };
     prefCache.set(intake, p);
   }
   return p;
 }
+
+/**
+ * Which of their disliked foods a dish has, and the part each plays in it.
+ * @returns {{ label: string, role: 'core'|'component'|'garnish'|'side', removable: boolean, ing: string|null, guess: boolean }[]}
+ */
+export function dislikeHits(d, prefs) {
+  const out = [];
+  for (const x of prefs?.dislike ?? []) {
+    const m = x.detail(d);
+    if (!m) continue;
+    let role, ing = null;
+    if (m.via === 'tag' || m.inName) role = 'core';
+    else if (m.ings.length) {
+      const roles = rolesOf(d);
+      role = mostCentral(m.ings.map((i) => roles[i] ?? 'component'));
+      ing = m.ings.find((i) => (roles[i] ?? 'component') === role) ?? m.ings[0];
+    } else role = 'component'; // only in the description: assume it is cooked in
+    out.push({ label: x.label, role, removable: REMOVABLE.has(role), ing, guess: m.via === 'word' && !m.inName && rolesAreGuess(d) });
+  }
+  return out;
+}
+
 function personal(d, prefs) {
   if (!prefs || (!prefs.like.length && !prefs.dislike.length)) return null;
-  let v = prefs.cache.get(d);
+  const cache = prefs.cache[TUNING.roles ? 1 : 0];
+  let v = cache.get(d);
   if (!v) {
-    const count = (tests) => { let n = 0; for (const t of tests) if (t(d)) n++; return Math.min(2, n); };
-    v = [count(prefs.like), count(prefs.dislike)];
-    prefs.cache.set(d, v);
+    let like = 0;
+    for (const t of prefs.like) if (t.test(d)) like++;
+    const n = { dislike: 0, dislikeMixed: 0, dislikePick: 0 };
+    for (const h of dislikeHits(d, prefs)) {
+      const k = !TUNING.roles || h.role === 'core' ? 'dislike' : h.removable ? 'dislikePick' : 'dislikeMixed';
+      n[k]++;
+    }
+    v = [['like', Math.min(2, like)], ...DISLIKE_KEYS.map((k) => [k, Math.min(2, n[k])])].filter(([, x]) => x > 0);
+    cache.set(d, v);
   }
   return v;
 }
@@ -59,10 +99,9 @@ export function features(d, prefs = null) {
   let f = featCache.get(d);
   if (!f) { f = dishFeatures(d); featCache.set(d, f); }
   const p = personal(d, prefs);
-  if (!p || (!p[0] && !p[1])) return f;
+  if (!p || !p.length) return f;
   const out = new Map(f);
-  if (p[0]) out.set('like', p[0]);
-  if (p[1]) out.set('dislike', p[1]);
+  for (const [k, v] of p) out.set(k, v);
   return out;
 }
 
@@ -106,7 +145,10 @@ export function priorFromIntake(intake = {}) {
   // typed likes and dislikes: the personal features, plus a nudge to what each food stands for
   const likes = Array.isArray(intake.likes) ? intake.likes : [], dislikes = Array.isArray(intake.dislikes) ? intake.dislikes : [];
   if (likes.length) w.like = PRIOR.like;
-  if (dislikes.length) w.dislike = PRIOR.dislike;
+  if (dislikes.length) {
+    w.dislike = PRIOR.dislike;
+    if (TUNING.roles) { w.dislikeMixed = PRIOR.dislikeMixed; w.dislikePick = PRIOR.dislikePick; }
+  }
   for (const c of likes) for (const k of featureHints(c)) w[k] = (w[k] ?? 0) + PRIOR.likeHint;
   for (const c of dislikes) for (const k of featureHints(c)) w[k] = (w[k] ?? 0) + PRIOR.dislikeHint;
   return w;
@@ -152,6 +194,9 @@ export function train(intake = {}, rounds = []) {
   for (const [k, i] of index) prior[i] = w0[k] ?? 0;
   w.set(prior);
   const step = 1 / lipschitz;
+  const lam = new Float64Array(n).fill(TUNING.lambda);
+  const capped = DISLIKE_KEYS.map((k) => index.get(k)).filter((i) => i !== undefined);
+  for (const i of capped) lam[i] = TUNING.lambdaDislike;
   const sc = (f) => { let s = 0; for (let j = 0; j < f.k.length; j++) s += w[f.k[j]] * f.v[j]; return s; };
   const addG = (f, c) => { for (let j = 0; j < f.k.length; j++) g[f.k[j]] += c * f.v[j]; };
   for (let it = 0; it < (data.length ? TUNING.iterations : 0); it++) {
@@ -173,7 +218,8 @@ export function train(intake = {}, rounds = []) {
         for (let j = 0; j < fs.length; j++) addG(fs[j], TUNING.never * scale * never.length * q[j]);
       }
     }
-    for (let i = 0; i < n; i++) w[i] += step * (g[i] - TUNING.lambda * (w[i] - prior[i]));
+    for (let i = 0; i < n; i++) w[i] += step * (g[i] - lam[i] * (w[i] - prior[i]));
+    for (const i of capped) if (w[i] > 0) w[i] = 0; // a disliked food never becomes a reason to pick
   }
   const out = {};
   for (const [k, i] of index) if (Math.abs(w[i]) >= 1e-4 || k in w0) out[k] = w[i];
@@ -233,6 +279,8 @@ export function phrase(key, positive = true) {
     case 'course': return COURSE[val] ?? val;
     case 'like': return positive ? 'foods you said you like' : 'foods you said you like, less than you thought';
     case 'dislike': return 'foods you said you dislike';
+    case 'dislikeMixed': return 'foods you dislike, cooked in';
+    case 'dislikePick': return 'foods you dislike, as a garnish or side';
     default: return key;
   }
 }
@@ -252,7 +300,7 @@ export function explain(model, dish, k = 3) {
 
 /** What the model has learned overall: the strongest likes and dislikes, in words. */
 export function summary(model, { likes = 8, dislikes = 6 } = {}) {
-  const entries = Object.entries(model.w).filter(([k]) => !k.startsWith('course:') && k !== 'like' && k !== 'dislike');
+  const entries = Object.entries(model.w).filter(([k]) => !k.startsWith('course:') && k !== 'like' && !DISLIKE_KEYS.includes(k));
   // "rich" with a negative weight is a like of lighter food, so turn signed scalars into phrases by sign
   const scored = entries.map(([k, w]) => ({ k, w, scalar: !k.includes(':') && !['veg', 'adventurous', 'cold'].includes(k) }));
   const seen = (k) => (model.evidence?.[k] ?? 0) >= 2 || (model.w0?.[k] ?? 0) > 0.3; // a like needs real picks behind it
@@ -260,6 +308,122 @@ export function summary(model, { likes = 8, dislikes = 6 } = {}) {
     .map((x) => phrase(x.k, x.w > 0));
   const dislike = scored.filter((x) => x.w < -0.4 && !x.scalar).sort((a, b) => a.w - b.w).map((x) => phrase(x.k, true));
   return { likes: [...new Set(like)].slice(0, likes), dislikes: [...new Set(dislike)].slice(0, dislikes) };
+}
+
+// ───────── Why this, why not ─────────
+// Foods that read better in the plural ("Has mushrooms"); the rest stay as they are ("Has cilantro").
+const COUNTABLE = new Set(['mushroom', 'olive', 'onion', 'tomato', 'peanut', 'pepper', 'bell pepper', 'caper', 'anchovy', 'egg', 'bean', 'chickpea', 'lentil', 'pea', 'pickle', 'raisin', 'walnut', 'almond', 'cashew', 'pistachio', 'nut', 'radish', 'carrot', 'potato', 'beet', 'bean sprout', 'clam', 'mussel', 'oyster', 'scallop', 'crouton', 'date', 'fig', 'cherry', 'berry', 'strawberry', 'apple', 'noodle', 'chili pepper', 'jalapeno', 'cornichon', 'sausage']);
+function noun(label) {
+  const l = String(label).toLowerCase();
+  if (!COUNTABLE.has(l)) return { text: l, many: /s$/.test(l) && !/ss$/.test(l) };
+  const plural = /[^aeiou]y$/.test(l) ? `${l.slice(0, -1)}ies` : /(o|ch|sh|x)$/.test(l) ? `${l}es` : `${l}s`;
+  return { text: plural, many: true };
+}
+const cap = (t) => t.charAt(0).toUpperCase() + t.slice(1);
+const andList = (xs) => (xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
+
+/** True when this person has shown they pick dishes with a disliked garnish anyway (their penalty shrank). */
+export const picksAroundGarnish = (model) => !!model?.w0?.dislikePick && (model.w.dislikePick ?? 0) > PRIOR.dislikePick * 0.5;
+
+/**
+ * One plain sentence about a disliked food on a dish, e.g. "Has mushrooms, which you don't like. They're a
+ * garnish here, so you could ask to leave them out." `skipped`: the dish was not recommended.
+ */
+export function dislikeNote(h, { skipped = false, model = null } = {}) {
+  const n = noun(h.label);
+  const [they, them, are] = n.many ? ['they', 'them', 'are'] : ['it', 'it', 'is'];
+  const theyre = n.many ? "they're" : "it's";
+  if (h.role === 'core') {
+    if (!h.ing && !COUNTABLE.has(h.label.toLowerCase()) && / food$|^spicy|^fried|^salad|^sweet/.test(h.label.toLowerCase())) return skipped ? `Skipped: it's ${n.text}, which you don't like.` : `It's ${n.text}, which you said you don't like.`;
+    return skipped ? `Skipped: ${n.text} ${are} the main ingredient.` : `${cap(n.text)} ${are} the main ingredient, and you said you don't like ${them}.`;
+  }
+  if (h.role === 'component') return `${skipped ? 'Skipped: has' : 'Has'} ${n.text} cooked in, which you don't like, so ${they} can't easily be left out.`;
+  const where = h.role === 'side'
+    ? `${h.guess ? `${cap(they)} seem${n.many ? '' : 's'} to come` : `${cap(they)} come${n.many ? '' : 's'}`} on the side, so you could leave ${them} or ask to swap`
+    : `${h.guess ? `${cap(they)} look${n.many ? '' : 's'} like a garnish here (a guess from the menu wording)` : `${cap(theyre)} a garnish here`}, so you could ask to leave ${them} out`;
+  const learned = model && picksAroundGarnish(model) ? ' You often pick dishes like this anyway, so it counts for less.' : '';
+  return `Has ${n.text}, which you don't like. ${where}.${learned}`;
+}
+
+/** Disliked foods on a dish, in words (most central first). */
+export function dislikeNotes(model, dish, opts = {}) {
+  const order = { core: 0, component: 1, side: 2, garnish: 3 };
+  return dislikeHits(dish, model.prefs).sort((a, b) => order[a.role] - order[b.role]).map((h) => ({ ...h, text: dislikeNote(h, { ...opts, model }) }));
+}
+
+/**
+ * "Why this": the 1 to 3 strongest reasons the learner likes this dish for this person, in plain words:
+ * foods they like, a cuisine they love or keep picking, heat, adventurousness, what they often pick.
+ */
+export function whyThis(model, dish, intake = {}, k = 3) {
+  const w = model.w, f = features(dish, model.prefs);
+  const out = []; // [strength, text]
+  const used = new Set(['like', ...DISLIKE_KEYS, `cuisine:${dish.cuisine}`, `heat:${dish.heat}`, 'adventurous', ...SKIP_IN_WHY]);
+  if (f.get('like') && (w.like ?? 0) > 0) {
+    const names = (model.prefs?.like ?? []).filter((t) => t.test(dish)).map((t) => noun(t.label).text);
+    if (names.length) out.push([w.like * f.get('like') + 0.3, `has ${andList([...new Set(names)].slice(0, 3))}, which you like`]);
+  }
+  const ck = `cuisine:${dish.cuisine}`;
+  if (dish.cuisine !== 'other' && (w[ck] ?? 0) > 0.15) {
+    const loved = new Set([...(intake.cuisines ?? []), ...cuisineKeys(intake.cuisineChips)]).has(dish.cuisine);
+    out.push([w[ck], loved ? `${LABELS.cuisine[dish.cuisine]} food, a cuisine you love` : `${LABELS.cuisine[dish.cuisine]} food, which you often pick`]);
+  }
+  const hk = `heat:${dish.heat}`;
+  if (dish.heat >= 1 && (w[hk] ?? 0) > 0.15) out.push([w[hk], dish.heat >= 2 ? 'real chili heat, the way you like it' : 'a gentle bit of heat']);
+  else if (dish.heat === 0 && (intake.spice ?? 1) === 0) out.push([0.3, 'no chili heat']);
+  if (dish.familiarity === 'adventurous' && (w.adventurous ?? 0) > 0.15) out.push([w.adventurous, 'something new to try, as you like']);
+  else if (dish.familiarity === 'common' && (w.adventurous ?? 0) < -0.15) out.push([-0.6 * w.adventurous, 'a familiar dish']);
+  const extra = [];
+  for (const [key, v] of f) {
+    if (used.has(key)) continue;
+    const c = (w[key] ?? 0) * v;
+    if (c <= 0.15) continue;
+    const ph = phrase(key, v > 0);
+    if ((model.evidence?.[key] ?? 0) >= 2) out.push([c, `you often pick ${ph}`]);
+    else extra.push([c, `${ph}, from your answers`]);
+  }
+  if (!out.length && extra.length) out.push(extra.sort((a, b) => b[0] - a[0])[0]);
+  const said = [];
+  const fresh = (t) => { const words = t.replace(/^you often pick /, '').replace(/, from your answers$/, ''); if (said.some((x) => x.includes(words))) return false; said.push(t); return true; };
+  return out.sort((a, b) => b[0] - a[0]).map(([, t]) => t).filter(fresh).slice(0, k);
+}
+
+/**
+ * "Why not": one plain sentence on why a dish was not among its picks.
+ * @param ctx { cutoff: the score of its last pick }
+ */
+export function whyNot(model, dish, intake = {}, ctx = {}) {
+  const blocked = conflicts(dish, intake);
+  if (blocked.length) return `Not for you: ${blocked.map((b) => b.text).join(', ')}.`;
+  const hits = dislikeNotes(model, dish, { skipped: true });
+  const firm = hits.find((h) => !h.removable);
+  if (firm) return firm.text;
+  if (dish.heat > (intake.spice ?? 1) + 0) return dish.heat - (intake.spice ?? 1) >= 2 ? 'Skipped: much hotter than you like.' : 'Skipped: a bit hotter than you like.';
+  const gap = Number.isFinite(ctx.cutoff) ? ctx.cutoff - score(model, dish) : Infinity;
+  if (hits.length) return `${hits[0].text.replace(/\.$/, '')}${gap < 0.8 ? '. Close, but its picks fit you a little better.' : '. Its picks fit you better.'}`;
+  if (gap < 0.5) return 'Close call: its 3 picks fit you a little better.';
+  const f = features(dish, model.prefs);
+  if ((model.prefs?.like?.length ?? 0) > 0 && !f.get('like') && gap < 1.5) return 'Fine, but it has none of the foods you said you like.';
+  const neg = [...f].filter(([key]) => !SKIP_IN_WHY.has(key) && !DISLIKE_KEYS.includes(key) && key !== 'like').map(([key, v]) => [(model.w[key] ?? 0) * v, key, v]).filter(([c]) => c < -0.15).sort((a, b) => a[0] - b[0]);
+  if (neg.length) return `Less your style: ${andList(neg.slice(0, 2).map(([, key, v]) => phrase(key, v > 0)))}.`;
+  return 'Fine, but other dishes fit you better.';
+}
+
+/**
+ * The dishes worth explaining that it did not pick, each with a "why not": the closest runners-up,
+ * dishes with a food they dislike, then dishes their allergies or diet rule out.
+ * @returns {{ dish, text: string, kind: 'close'|'dislike'|'blocked' }[]}
+ */
+export function skippedWithReasons(model, dishes, intake = {}, topIds = [], { runnersUp = 2 } = {}) {
+  const ranked = rank(model, dishes, intake).filter((r) => !topIds.includes(r.dish.id) && r.dish.course !== 'drink');
+  const last = dishes.find((d) => d.id === topIds[topIds.length - 1]);
+  const cutoff = last ? score(model, last) : Infinity;
+  const out = [], seen = new Set();
+  const push = (r, kind) => { if (seen.has(r.dish.id)) return; seen.add(r.dish.id); out.push({ dish: r.dish, kind, text: whyNot(model, r.dish, intake, { cutoff }) }); };
+  for (const r of ranked.filter((x) => !x.blocked.length && !dislikeHits(x.dish, model.prefs).length).slice(0, runnersUp)) push(r, 'close');
+  for (const r of ranked) if (!r.blocked.length && dislikeHits(r.dish, model.prefs).length) push(r, 'dislike');
+  for (const r of ranked) if (r.blocked.length) push(r, 'blocked');
+  return out;
 }
 
 const BASE_KINDS = ['carb', 'protein', 'veg', 'cuisine', 'method'];

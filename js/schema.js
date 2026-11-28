@@ -101,7 +101,18 @@ export function normalizeDish(raw, fallbackCuisine = 'other') {
     familiarity: t.familiarity === 'adventurous' ? 'adventurous' : 'common',
     temperature: t.temperature === 'cold' ? 'cold' : 'hot',
     allergens,
+    ...rolesField(raw.roles ?? t.roles, ingredients, raw.rolesGuessed ?? t.rolesGuessed),
   };
+}
+
+const ROLE_NAMES = ['core', 'component', 'garnish', 'side'];
+/** Ingredient roles (see js/roles.js), keyed by the normalised ingredient name. Absent when unknown. */
+function rolesField(roles, ingredients, guessed) {
+  if (!roles || typeof roles !== 'object') return {};
+  const out = {};
+  for (const [k, v] of Object.entries(roles)) { const n = normIngredient(k); if (n && ingredients.includes(n) && ROLE_NAMES.includes(v)) out[n] = v; }
+  if (!Object.keys(out).length) return {};
+  return guessed ? { roles: out, rolesGuessed: true } : { roles: out };
 }
 
 // ───────── Hard rules: diet, allergies, never-eat ─────────

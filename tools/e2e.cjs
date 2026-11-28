@@ -14,7 +14,7 @@ const root = path.resolve(__dirname, '..');
 const PORT = Number(process.env.PORT || 8766);
 const EMU = process.argv.includes('--emulator');
 const SHOTS = process.env.SHOTS || '';
-const types = { '.js': 'text/javascript', '.mjs': 'text/javascript', '.html': 'text/html', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json', '.txt': 'text/plain', '.xml': 'application/xml' };
+const types = { '.js': 'text/javascript', '.mjs': 'text/javascript', '.html': 'text/html', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.woff2': 'font/woff2', '.webmanifest': 'application/manifest+json', '.txt': 'text/plain', '.xml': 'application/xml' };
 const server = http.createServer((q, s) => {
   let p = path.join(root, decodeURIComponent(q.url.split('?')[0]));
   if (!p.startsWith(root)) { s.writeHead(403); return s.end(); }
@@ -32,7 +32,7 @@ function check(name, ok, extra = '') {
 
 async function newPage(browser, viewport, { proxy = false } = {}) {
   const ctx = await browser.newContext({
-    viewport, deviceScaleFactor: 1, isMobile: viewport.width < 500, hasTouch: viewport.width < 500,
+    viewport, deviceScaleFactor: SHOTS ? 2 : 1, isMobile: viewport.width < 500, hasTouch: viewport.width < 500,
     ...(proxy && process.env.HTTPS_PROXY ? { proxy: { server: process.env.HTTPS_PROXY, bypass: 'localhost,127.0.0.1' }, ignoreHTTPSErrors: true } : {}),
   });
   const page = await ctx.newPage();
@@ -43,7 +43,7 @@ async function newPage(browser, viewport, { proxy = false } = {}) {
   return { ctx, page, errors };
 }
 const noSideScroll = (page) => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1);
-const shot = async (page, name) => { if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: path.join(SHOTS, `${name}.png`), fullPage: false }); } };
+const shot = async (page, name) => { if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await page.waitForTimeout(150); await page.screenshot({ path: path.join(SHOTS, `${name}.png`), fullPage: false }); } };
 
 async function chips(page, field, text, { enter = true } = {}) {
   await page.fill(`#in-${field}`, text);
@@ -74,11 +74,95 @@ async function intake(page, { allergy = 'peanut allergy', diet = null } = {}) {
 async function playRound(page, k = 3) {
   await page.waitForSelector('.guesscard');
   const guess = await page.locator('.guesscard li').count();
-  const taps = page.locator('.dish .tap');
+  const taps = page.locator('.entry-tap');
   for (let i = 0; i < k; i++) await taps.nth(i * 2).click();
   await page.click('[data-action="lock"]');
   await page.waitForSelector('.verdict');
   return { guess, text: await page.locator('main').innerText() };
+}
+
+/** The sample menu reads like a printed one, picks are big tap targets, and every guess says why. */
+async function printedMenuChecks(page) {
+  const name = await page.locator('.sheet-name').innerText();
+  check('menu has a restaurant name, tagline and kicker', name.length > 3 && await page.locator('.sheet-tag').count() === 1 && /\$/.test(await page.locator('.sheet-kicker').innerText()), name);
+  const heads = await page.locator('.sheet h3.msec-h .msec-t').allInnerTexts();
+  const rank = (t) => ['STARTERS', 'SMALL PLATES', 'MEZE', 'DIM SUM', 'TO START', 'RAW BAR', 'SOUPS', 'SALADS', 'PIZZA', 'PASTA', 'RAMEN', 'MAINS', 'SUSHI', 'RICE', 'LARGER', 'FROM', 'PLATES', 'SIDES', 'DESSERTS'].findIndex((w) => t.toUpperCase().startsWith(w));
+  check('menu sections are headings, in menu order (starters ... mains ... desserts)', heads.length >= 3 && heads.every((h, i) => rank(h) >= 0 && (i === 0 || rank(h) >= rank(heads[i - 1]))), heads.join(' / '));
+  check('a legend explains the marks', /vegetarian/.test(await page.locator('.sheet .legend').innerText()));
+  check('every dish line has a price', await page.locator('.sheet .entry .dprice').count() === await page.locator('.sheet .entry').count());
+  const sizes = await page.locator('.entry-tap').evaluateAll((els) => els.map((e) => { const r = e.getBoundingClientRect(); return [r.width, r.height]; }));
+  check('phone tap targets: every dish is a button at least 48 px tall and most of the screen wide', sizes.length > 5 && sizes.every(([w, h]) => h >= 48 && w >= 300), JSON.stringify(sizes.slice(0, 3)));
+  check('our top 3 are marked "Our pick #1-3" on the menu', (await page.locator('.ours-tag').allInnerTexts()).map((t) => t.replace(/[^#\d]/g, '')).sort().join() === '#1,#2,#3');
+  const whys = await page.locator('.guesscard .why').allInnerTexts();
+  check('each of its 3 says "Why this"', whys.length === 3 && whys.every((w) => /^Why this: \S/.test(w)), whys.join(' | '));
+  const first = page.locator('.entry-tap').first();
+  await first.click();
+  check('tapping a dish picks it: pressed, numbered "Your pick #1"', await first.getAttribute('aria-pressed') === 'true' && /Your pick #1/i.test(await first.innerText()) && await page.locator('.entry.on').count() === 1);
+  await first.click();
+  check('tapping again un-picks it', await first.getAttribute('aria-pressed') === 'false' && await page.locator('.entry.on').count() === 0);
+  await page.locator('details.skipped summary').click();
+  const skipped = await page.locator('.skiplist li').allInnerTexts();
+  check('"Show dishes we skipped and why" lists dishes with a reason', skipped.length >= 2 && skipped.every((t) => t.split('\n').length >= 2), skipped.slice(0, 2).join(' | '));
+  await page.locator('details.skipped summary').click();
+}
+
+/** Open a given sample menu with given answers (through the app's own modules), on a fresh page. */
+async function openMenu(browser, menuId, answers, viewport = { width: 390, height: 844 }) {
+  const n = await newPage(browser, viewport);
+  await n.page.goto(`${BASE}#/`);
+  await n.page.waitForSelector('.hero');
+  await n.page.evaluate(async ([id, a]) => {
+    const S = await import('./js/store.js'); const F = await import('./js/foods.js'); const M = await import('./js/menus.js'); const L = await import('./js/learner.js');
+    S.saveIntake({ likes: F.parseList(a.likes), dislikes: F.parseList(a.dislikes), restrictions: F.parseList(a.rules, 'restriction'), cuisineChips: F.parseList(a.cuisines ?? '', 'cuisine'), spice: a.spice ?? 1, adventure: 1 });
+    const menu = M.menuById(id);
+    S.update((s) => { s.pending = { id: 'e2e', menu: id, predicted: L.topK(S.getModel(), menu.dishes, S.get().intake, 3), picked: [], at: Date.now() }; }, { retrain: false });
+  }, [menuId, answers]);
+  await n.page.goto(`${BASE}#/train`);
+  await n.page.waitForSelector('.sheet');
+  return n;
+}
+
+async function dislikeChecks(browser) {
+  console.log('Soft dislikes, phone 390x844');
+  // brunch, someone who loves a cooked breakfast but not mushrooms
+  const b = await openMenu(browser, 'brunch', { likes: 'bacon, eggs, sausage, toast, beans', dislikes: 'mushrooms', rules: 'peanut allergy' });
+  const guess = await b.page.locator('.guesscard').innerText();
+  check('a dish with a disliked garnish can still be in its top 3, with a "leave it out" note', /Has mushrooms, which you don't like\. They're a garnish here, so you could ask to leave them out\./.test(guess), guess.slice(0, 300));
+  const notes = await b.page.locator('.sheet .enote.n-leave').allInnerTexts();
+  check('the menu marks dishes where the disliked food could be left out', notes.length >= 2 && notes.every((t) => /leave them out/.test(t)), notes.join(' | '));
+  if (SHOTS) {
+    await b.page.evaluate(() => { const el = document.querySelector('.guesscard'); window.scrollTo(0, el.getBoundingClientRect().top + window.scrollY - 12); });
+    await shot(b.page, 'phone-why-this');
+  }
+  await b.ctx.close();
+  // italian: mushrooms are the main ingredient of the risotto
+  const it = await openMenu(browser, 'italian', { likes: 'pasta, tomato, basil', dislikes: 'mushrooms', rules: 'shellfish', spice: 2 });
+  await it.page.locator('details.skipped summary').click();
+  const skipped = await it.page.locator('.skiplist').innerText();
+  check('why not: "Skipped: mushrooms are the main ingredient"', /Mushroom risotto\s+Skipped: mushrooms are the main ingredient\./.test(skipped), skipped.slice(0, 400));
+  check('why not: allergies still rule dishes out, with the reason', /Linguine allo scoglio\s+Not for you: may contain shellfish/.test(skipped));
+  check('no dish with the allergy is ever in its top 3', (await it.page.locator('.entry.ours').allInnerTexts()).every((t) => !/scoglio|calamari/i.test(t)));
+  if (SHOTS) {
+    await it.page.locator('.entry-tap[data-id="carbonara"]').click();
+    await it.page.locator('.entry-tap[data-id="margherita"]').click();
+    await it.page.evaluate(() => { const el = document.querySelector('.msec:nth-of-type(4)') || document.querySelector('.entry.ours'); window.scrollTo(0, el.getBoundingClientRect().top + window.scrollY - 70); });
+    await shot(it.page, 'phone-menu-with-picks');
+    await it.page.evaluate(() => { const el = document.querySelector('details.skipped'); window.scrollTo(0, el.getBoundingClientRect().top + window.scrollY - 330); });
+    await shot(it.page, 'phone-why-not');
+  }
+  const ierr = it.errors.filter((e) => !/Failed to load resource|gstatic|firebase/i.test(e));
+  check('no console errors (dislike pages)', ierr.length === 0, ierr.join(' | '));
+  await it.ctx.close();
+  // a different cuisine: a ramen bar, styled differently, same system
+  const rb = await openMenu(browser, 'ramen-bar', { likes: 'noodles, pork, egg', dislikes: 'scallion', rules: '' });
+  check('a ramen bar gets its own print style', await rb.page.locator('.sheet[data-style="izakaya"]').count() === 1 && /Ramen Yuzuki/.test(await rb.page.locator('.sheet-name').innerText()));
+  check('no horizontal scroll on the menu at 390', await noSideScroll(rb.page));
+  if (SHOTS) {
+    await rb.page.locator('.entry-tap[data-id="shoyu-ramen"]').click();
+    await rb.page.evaluate(() => { const el = document.querySelector('.entry.on'); window.scrollTo(0, el.getBoundingClientRect().top + window.scrollY - 150); });
+    await shot(rb.page, 'phone-other-cuisine');
+  }
+  await rb.ctx.close();
 }
 
 async function signedOut(browser) {
@@ -87,6 +171,7 @@ async function signedOut(browser) {
   await page.goto(`${BASE}?train=1`);
   await intake(page);
   check('share link ?train=1 opens the intake, then menu 1 of 10', await page.locator('text=Menu 1 of 10').count() === 1);
+  await printedMenuChecks(page);
   await shot(page, 'phone-round');
   let text = '';
   for (let r = 1; r <= 4; r++) {
@@ -112,7 +197,7 @@ async function signedOut(browser) {
   check('after reload the profile is kept (4 menus, typed foods, allergy)', /Sample menus\s+4/.test(you) && /broccoli/.test(you) && /peanuts/i.test(you), you.slice(0, 400));
   const keys = await page.evaluate(() => Object.keys(localStorage));
   check('browser storage keys start with mypalette.', keys.length > 0 && keys.every((k) => k.startsWith('mypalette.')), keys.join(','));
-  check('stored state is version 2 under the same key', await page.evaluate(() => JSON.parse(localStorage.getItem('mypalette.state.v1')).v === 2));
+  check('stored state is version 3 under the same key', await page.evaluate(() => JSON.parse(localStorage.getItem('mypalette.state.v1')).v === 3));
   await page.goto(`${BASE}#/train`);
   await page.waitForSelector('[data-action="train-more"]');
   await page.click('[data-action="train-more"]');
@@ -141,7 +226,7 @@ async function signedOut(browser) {
   await o.page.evaluate(() => localStorage.setItem('mypalette.state.v1', JSON.stringify({ v: 1, intake: { diet: ['vegetarian'], allergies: ['peanut'], never: ['olive'], spice: 1, adventure: 1, cuisines: [], at: 1 }, rounds: [{ id: 'r1', menu: 'thai', predicted: ['green-curry'], picked: ['panang-tofu'], never: [], at: 1, hit: false }], pending: null, feedback: [], meals: [], consent: false, sessionId: 'abcdefghijklmnopqrstuvwx', order: null, syncOffFor: null, updated: 1 })));
   await o.page.goto(`${BASE}#/train`);
   await o.page.waitForSelector('.guesscard');
-  check('v1 tester: no crash, continues at menu 2 with their rules', /Menu 2 of 10/.test(await o.page.locator('main').innerText()) && await o.page.locator('.dish.blocked').count() > 0);
+  check('v1 tester: no crash, continues at menu 2 with their rules', /Menu 2 of 10/.test(await o.page.locator('main').innerText()) && await o.page.locator('.entry.blocked').count() > 0);
   const oerr = o.errors.filter((e) => !/Failed to load resource|gstatic|firebase/i.test(e));
   check('no console errors (v1 data)', oerr.length === 0, oerr.join(' | '));
   await o.ctx.close();
@@ -153,8 +238,9 @@ async function signedOut(browser) {
   const t = await playRound(d.page, 1);
   check('desktop: a menu works', /Running score/i.test(t.text));
   await d.page.click('[data-action="next"]');
-  await d.page.waitForSelector('.dish');
-  check('desktop: vegetarian rule greys out meat dishes', await d.page.locator('.dish.blocked').count() > 0);
+  await d.page.waitForSelector('.sheet .entry');
+  const vmenu = await d.page.locator('.sheet-name').innerText();
+  check('desktop: vegetarian rule greys out meat dishes', await d.page.locator('.entry.blocked').count() > 0, `on ${vmenu}`);
   await d.page.keyboard.press('Tab');
   check('desktop: keyboard focus is visible', await d.page.evaluate(() => { const el = document.activeElement; return !!el && getComputedStyle(el).outlineStyle !== 'none'; }));
   const derr = d.errors.filter((e) => !/Failed to load resource|gstatic|firebase/i.test(e));
@@ -219,13 +305,14 @@ async function signedIn(browser) {
   await page.locator('input[type="file"][data-action="photo"]').nth(1).setInputFiles({ name: 'menu.png', mimeType: 'image/png', buffer: img });
   check('progress shown while reading', await page.locator('text=Reading the menu').count() > 0 || /#\/meal\//.test(page.url()));
   await page.waitForFunction(() => location.hash.startsWith('#/meal/'), null, { timeout: 60000 });
-  await page.waitForSelector('.pick');
+  await page.waitForSelector('.pickcard');
   const meal = await page.locator('main').innerText();
-  check('a top 3 is shown', await page.locator('.pick').count() === 3);
-  const top = await page.locator('.pick .name').allInnerTexts();
+  check('a top 3 is shown, each "Our pick #n" with "Why this"', await page.locator('.pickcard').count() === 3 && await page.locator('.pickcard .why').count() === 3 && /Our pick #1/i.test(meal));
+  check('the photo menu is shown as a printed menu with sections', await page.locator('#dish-list .sheet .msec-h').count() >= 1 && await page.locator('#dish-list .sheet .entry').count() >= 5);
+  const top = await page.locator('.pickcard .dname').allInnerTexts();
   check('top 3 leaves out dishes with the allergy (peanut)', top.every((n) => !/Pad Thai|Som Tam|Massaman/.test(n)), top.join(' / '));
   check('allergy note shown next to results', /Check with the staff/.test(meal) && /not medical advice/.test(meal));
-  check('full menu decoded with allergy flags', /Allergy: may contain peanut/.test(meal) && /Mango Sticky Rice/.test(meal));
+  check('full menu decoded with allergy flags', /Not for you: may contain peanut/.test(meal) && /Mango Sticky Rice/.test(meal));
   await page.fill('#dish-search', 'cury');
   check('menu search forgives typos', /Green Curry/.test(await page.locator('#dish-list').innerText()));
   await page.fill('#dish-search', '');
@@ -258,6 +345,7 @@ async function signedIn(browser) {
   const browser = await chromium.launch();
   try {
     await signedOut(browser);
+    await dislikeChecks(browser);
     if (EMU) await signedIn(browser);
   } catch (e) { failed++; console.log('  FAIL crashed:', e); }
   await browser.close(); server.close();

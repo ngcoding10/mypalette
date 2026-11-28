@@ -7,9 +7,12 @@ import { ALLERGENS, CUISINES, DIET_RULES, NEVER_OPTIONS, normalizeDish } from '.
 import { cuisineKeys, entryOf, parseList, RESTRICTIONS } from './foods.js';
 import { rulesOf } from './rules.js';
 import { train, compactWeights, topK } from './learner.js';
+import { inferRoles } from './roles.js';
 
 const KEY = 'mypalette.state.v1'; // the key stays; the data inside carries its own version (v)
-export const STATE_VERSION = 2;
+// v3: dishes of menus read from a photo (meals, and the meal feedback the learner uses) carry ingredient
+// roles (core, component, garnish, side), guessed from the menu wording. Older data gets them on load.
+export const STATE_VERSION = 3;
 const MAX_FEEDBACK = 25, MAX_MEALS = 20;
 export const FIRST_GOAL = 10, MAX_ROUNDS = 25;
 
@@ -74,9 +77,25 @@ export function deriveIntake(i) {
 /** A blank intake draft for the step-by-step questions. */
 export const blankDraft = () => ({ step: 0, likes: [], dislikes: [], restrictions: [], cuisineChips: [], spice: 1, adventure: 1 });
 
+/** A stored photo-menu dish with ingredient roles: kept when it has them, guessed from its words when not. */
+export function withRoles(d) {
+  if (!d || typeof d !== 'object' || !Array.isArray(d.ingredients)) return d;
+  if (d.roles && typeof d.roles === 'object') return d;
+  return { ...d, roles: inferRoles(d), rolesGuessed: true };
+}
+/** v1/v2 meals and meal feedback → v3: add roles, taking a feedback dish's roles from its meal when there. */
+function addRoles(s) {
+  s.meals = s.meals.map((m) => (m && Array.isArray(m.dishes) ? { ...m, dishes: m.dishes.map(withRoles) } : m));
+  s.feedback = s.feedback.map((f) => {
+    if (!f || !Array.isArray(f.options)) return f;
+    const meal = s.meals.find((m) => m?.id === f.id);
+    return { ...f, options: f.options.map((o) => withRoles(o?.roles ? o : { ...o, ...(meal?.dishes?.find((x) => x.id === o?.id)?.roles ? { roles: meal.dishes.find((x) => x.id === o.id).roles, rolesGuessed: true } : {}) })) };
+  });
+}
+
 /** Any stored state in the current shape. Never throws: unreadable data starts fresh. */
 export function migrateState(raw) {
-  if (!raw || typeof raw !== 'object' || ![1, 2].includes(raw.v)) return blank();
+  if (!raw || typeof raw !== 'object' || ![1, 2, 3].includes(raw.v)) return blank();
   const s = { ...blank(), ...raw, v: STATE_VERSION };
   try { s.intake = migrateIntake(raw.intake); } catch { s.intake = null; }
   s.rounds = (Array.isArray(raw.rounds) ? raw.rounds : []).filter((r) => r && menuById(r.menu) && Array.isArray(r.picked) && Array.isArray(r.predicted));
@@ -85,6 +104,7 @@ export function migrateState(raw) {
   s.meals = Array.isArray(raw.meals) ? raw.meals : [];
   if (s.pending && (!menuById(s.pending.menu) || !Array.isArray(s.pending.picked))) s.pending = null;
   if (s.draft && typeof s.draft !== 'object') s.draft = null;
+  if (raw.v < 3) addRoles(s);
   if (raw.v === 1) {
     // a v1 tester: they did up to 12 menus already; offer the rest without making them start over
     s.target = Math.min(MAX_ROUNDS, Math.max(FIRST_GOAL, s.rounds.length));
@@ -263,15 +283,15 @@ export function sharedSession(s = state) {
 }
 
 /** Compact dish tags for storing a meal's options in the history (no long text). */
-export const compactDish = (d) => ({ id: d.id, name: String(d.name).slice(0, 80), cuisine: d.cuisine, course: d.course, protein: d.protein, diet: d.diet, method: d.method, heat: d.heat, richness: d.richness, sweetness: d.sweetness, sourness: d.sourness, umami: d.umami, texture: d.texture, ingredients: d.ingredients, carb: d.carb, familiarity: d.familiarity, temperature: d.temperature, allergens: d.allergens });
+export const compactDish = (d) => ({ id: d.id, name: String(d.name).slice(0, 80), cuisine: d.cuisine, course: d.course, protein: d.protein, diet: d.diet, method: d.method, heat: d.heat, richness: d.richness, sweetness: d.sweetness, sourness: d.sourness, umami: d.umami, texture: d.texture, ingredients: d.ingredients, carb: d.carb, familiarity: d.familiarity, temperature: d.temperature, allergens: d.allergens, ...(d.roles ? { roles: d.roles, ...(d.rolesGuessed ? { rolesGuessed: true } : {}) } : {}) });
 
 /** The private cloud profile document (palette_users/{uid}). Same fields as before; the intake map carries v: 2. */
 export function cloudProfile(s = state) {
   const m = getModel();
   let feedback = s.feedback.slice(-MAX_FEEDBACK);
   const extra = { skipped: s.skipped, target: s.target, finished: s.finished };
-  let history = JSON.stringify({ v: 2, rounds: s.rounds, feedback, meals: s.meals.slice(-MAX_MEALS), ...extra });
-  while (history.length > 590_000 && feedback.length) { feedback = feedback.slice(1); history = JSON.stringify({ v: 2, rounds: s.rounds, feedback, meals: [], ...extra }); }
+  let history = JSON.stringify({ v: STATE_VERSION, rounds: s.rounds, feedback, meals: s.meals.slice(-MAX_MEALS), ...extra });
+  while (history.length > 590_000 && feedback.length) { feedback = feedback.slice(1); history = JSON.stringify({ v: STATE_VERSION, rounds: s.rounds, feedback, meals: [], ...extra }); }
   const st = stats(s);
   return { intake: s.intake ?? {}, weights: compactWeights(m.w), stats: { rounds: st.rounds, hits: st.hits, meals: st.meals, guessed: st.got, picks: st.of }, history };
 }
@@ -288,6 +308,7 @@ export function mergeCloud(doc) {
     s.rounds = byId(s.rounds, remote.rounds).filter((r, i, all) => menuById(r.menu) && Array.isArray(r.predicted) && all.findIndex((x) => x.menu === r.menu) === i);
     s.feedback = byId(s.feedback, remote.feedback).slice(-MAX_FEEDBACK);
     s.meals = byId(s.meals, remote.meals).slice(-MAX_MEALS);
+    addRoles(s); // a cloud copy from an older version of the app has no roles yet
     s.skipped = [...new Set([...s.skipped, ...(Array.isArray(remote.skipped) ? remote.skipped : [])])].filter((id) => menuById(id));
     if (Number.isInteger(remote.target)) s.target = Math.min(MAX_ROUNDS, Math.max(s.target, remote.target));
     if (s.rounds.length > s.target) s.target = Math.min(MAX_ROUNDS, s.rounds.length);
@@ -300,7 +321,9 @@ export function mergeCloud(doc) {
 
 /** A menu read by the backend, turned into dishes the learner understands, with their display text kept. */
 export function dishesFromReading(menu) {
-  return (menu.dishes ?? []).map((d, i) => ({
+  // The menu reader gives ingredients but not their roles, so they are guessed from its wording
+  // ("topped with", "served with", "on the side") and marked as a guess.
+  return (menu.dishes ?? []).map((d, i) => withRoles({
     ...normalizeDish({ ...d.tags, id: `d${i}`, name: d.name }),
     englishName: d.englishName ?? '', section: d.section ?? '', price: d.price ?? '', whatItIs: d.whatItIs ?? '',
     mainIngredients: d.mainIngredients ?? [], heatNote: d.heatNote ?? '', allergenNote: d.allergenNote ?? '',

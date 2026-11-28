@@ -636,12 +636,12 @@ export function dishText(d) {
 /** True when a folded word or phrase appears in the dish's text as whole words (plurals allowed). */
 export const mentions = (d, w) => !!w && wordRe(w).test(dishText(d).trim());
 
-/** A test for "this dish has this food", built from a dictionary entry or from words typed. */
-export function matcher(chip, kind = 'food') {
+/** The words and tag test behind a chip: what "this dish has this food" checks. */
+function matchParts(chip, kind) {
   const e = entryOf(chip.k, kind);
   if (!e) {
     const w = foldWords(chip.t).filter((x) => !FILLER.has(x)).map(singular).join(' ');
-    return w.length >= 3 ? (d) => mentions(d, w) : () => false;
+    return { words: w.length >= 3 ? [w] : [], tag: null };
   }
   const sp = e.spec;
   const words = sp.x ? [] : (sp.w ?? [e.label, ...e.aliases]).map((x) => foldWords(x).map(singular).join(' ')).filter((x) => x.length >= 3);
@@ -650,11 +650,51 @@ export function matcher(chip, kind = 'food') {
   const h = sp.h ? Number(sp.h[0]) : null;
   const sc = sp.s?.[0];
   const field = { sour: 'sourness', sweet: 'sweetness', rich: 'richness', umami: 'umami' }[sc];
-  return (d) => (p && p.has(d.protein)) || (c && c.has(d.carb)) || (q && q.has(d.cuisine)) || (m && m.has(d.method))
+  const tag = (d) => (p && p.has(d.protein)) || (c && c.has(d.carb)) || (q && q.has(d.cuisine)) || (m && m.has(d.method))
     || (t && d.texture?.some((x) => t.has(x))) || (k && k.has(d.course)) || (h !== null && d.heat >= h)
     || (field && d[field] >= 2) || (sp.d && (d.diet === 'vegan' || d.diet === 'vegetarian') && d.course !== 'dessert')
-    || (sp.a && d.familiarity === 'adventurous') || (sp.L && d.heat <= Number(sp.L[0]))
-    || words.some((w) => mentions(d, w));
+    || (sp.a && d.familiarity === 'adventurous') || (sp.L && d.heat <= Number(sp.L[0]));
+  return { words, tag };
+}
+
+/** A test for "this dish has this food", built from a dictionary entry or from words typed. */
+export function matcher(chip, kind = 'food') {
+  const { words, tag } = matchParts(chip, kind);
+  if (!tag && !words.length) return () => false;
+  return (d) => (tag ? !!tag(d) : false) || words.some((w) => mentions(d, w));
+}
+/** matcher() for likes: the same, but "olive oil" is not olives (see TASTE_EXCEPT). */
+export function tasteMatcher(chip, kind = 'food') {
+  const detail = matchDetail(chip, kind);
+  return (d) => !!detail(d);
+}
+
+/** The part of a dish name before "with ...": "Pad kra pao with fried egg" -> "pad kra pao". */
+const nameHead = (d) => foldText(String(d.name ?? '').split(/\bwith\b|\bw\//i)[0]);
+
+// For taste (not for allergies or rules): phrases where a word names a different food. Someone who
+// dislikes olives can still enjoy olive oil; egg noodles do not taste of egg.
+const TASTE_EXCEPT = { olive: ['olive oil'], egg: ['egg noodle', 'egg wrapper'], peanut: ['peanut oil'], 'bell pepper': ['black pepper', 'white pepper'], pepper: ['black pepper', 'white pepper', 'sichuan pepper'] };
+const exceptOf = (words) => [...new Set(words.flatMap((w) => TASTE_EXCEPT[w] ?? []))];
+const without = (text, phrases) => { let t = text; for (const p of phrases) t = t.split(p).join(' '); return t; };
+
+/**
+ * Like matcher(), but for taste: says how the food shows up on a dish, or null when it does not:
+ * { via: 'tag' } for what the dish is (fried, spicy, a salad, its protein), or
+ * { via: 'word', ings: [ingredients that name it], inName: true when the dish is named after it }.
+ */
+export function matchDetail(chip, kind = 'food') {
+  const { words, tag } = matchParts(chip, kind);
+  const except = exceptOf(words);
+  return (d) => {
+    if (tag && tag(d)) return { via: 'tag', ings: [], inName: false };
+    const hay = except.length ? without(dishText(d), except).trim() : dishText(d).trim();
+    const hit = words.filter((w) => wordRe(w).test(hay));
+    if (!hit.length) return null;
+    const ings = (d.ingredients ?? []).filter((i) => { const f = without(` ${foldText(i)} `, except).trim(); return hit.some((w) => wordRe(w).test(f)); });
+    const head = without(` ${nameHead(d)} `, except).trim();
+    return { via: 'word', ings, inName: hit.some((w) => wordRe(w).test(head)) };
+  };
 }
 
 /** Learner features a liked or disliked food points to (used for the starting weights). */
